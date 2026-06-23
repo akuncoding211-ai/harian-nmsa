@@ -534,6 +534,17 @@ export default function App() {
     setPettyCashReports(pettyCashReports.map(r => r.id === updatedReport.id ? updatedReport : r));
   };
 
+  const handleDeletePettyCashReport = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm("Apakah Anda yakin ingin menghapus laporan petty cash ini dari riwayat?")) {
+      const remainingReports = pettyCashReports.filter(r => r.id !== id);
+      setPettyCashReports(remainingReports);
+      if (activeWorkspaceReport?.id === id) {
+        setActiveWorkspaceReport(remainingReports[0] || null);
+      }
+    }
+  };
+
   // --- Sync Petty Cash Excel with Google Drive ---
   const handleSaveWorkspaceToGoogleDrive = async () => {
     if (!activeWorkspaceReport) return;
@@ -1284,19 +1295,39 @@ export default function App() {
                 ) : (
                   <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
                     {pettyCashReports.map((report) => (
-                      <button
+                      <div
                         key={report.id}
                         onClick={() => setActiveWorkspaceReport(report)}
-                        className={`w-full text-left p-2.5 rounded-xl border transition flex items-start gap-2.5 cursor-pointer ${
+                        className={`w-full text-left p-2.5 rounded-xl border transition flex items-start gap-2.5 cursor-pointer group ${
                           activeWorkspaceReport?.id === report.id
                             ? "bg-slate-900 border-transparent text-white"
                             : "bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-900"
                         }`}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            setActiveWorkspaceReport(report);
+                          }
+                        }}
                       >
                         <FileText className={`w-4 h-4 shrink-0 mt-0.5 ${activeWorkspaceReport?.id === report.id ? "text-indigo-400" : "text-indigo-600"}`} />
                         <div className="flex-1 min-w-0">
-                          <div className={`text-xs font-semibold truncate ${activeWorkspaceReport?.id === report.id ? "text-white" : "text-slate-900"}`}>
-                            {report.summary.workerName || "Pekerja Lapangan"}
+                          <div className="flex items-center justify-between gap-1">
+                            <div className={`text-xs font-semibold truncate ${activeWorkspaceReport?.id === report.id ? "text-white" : "text-slate-900"}`}>
+                              {report.summary.workerName || "Pekerja Lapangan"}
+                            </div>
+                            <button
+                              onClick={(e) => handleDeletePettyCashReport(report.id, e)}
+                              className={`p-1 rounded-sm hover:bg-red-500/10 hover:text-red-500 transition cursor-pointer ${
+                                activeWorkspaceReport?.id === report.id
+                                  ? "text-slate-400 hover:text-red-400"
+                                  : "text-slate-400 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              }`}
+                              title="Hapus riwayat laporan"
+                            >
+                              <Trash className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                           <div className={`text-[10px] truncate max-w-[190px] ${activeWorkspaceReport?.id === report.id ? "text-slate-400" : "text-slate-500"}`}>
                             {report.fileName}
@@ -1310,7 +1341,7 @@ export default function App() {
                             </span>
                           </div>
                         </div>
-                      </button>
+                      </div>
                     ))}
                   </div>
                 )}
