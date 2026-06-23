@@ -94,45 +94,71 @@ Return a strict JSON response conforming exactly to this structure:
 
     console.log("Analyzing file: size =" + fileBase64.length + " bytes, type =" + defaultMime);
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: [inlinePart, textPart],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            transactions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  date: { type: Type.STRING },
-                  description: { type: Type.STRING },
-                  category: { type: Type.STRING },
-                  amount: { type: Type.INTEGER },
-                  worker: { type: Type.STRING },
-                  type: { type: Type.STRING, enum: ["EXPENSE", "INCOME"] },
-                },
-                required: ["date", "description", "category", "amount", "type"],
-              },
-            },
-            summary: {
+    const modelsToTry = [
+      "gemini-2.5-flash", 
+      "gemini-flash-latest", 
+      "gemini-3.1-flash-lite", 
+      "gemini-3.5-flash"
+    ];
+    let response = null;
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting document analysis with model: ${modelName}`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: [inlinePart, textPart],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
               type: Type.OBJECT,
               properties: {
-                totalIncome: { type: Type.INTEGER },
-                totalExpense: { type: Type.INTEGER },
-                remainingBalance: { type: Type.INTEGER },
-                workerName: { type: Type.STRING },
-                reportMonth: { type: Type.STRING },
+                transactions: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      date: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      category: { type: Type.STRING },
+                      amount: { type: Type.INTEGER },
+                      worker: { type: Type.STRING },
+                      type: { type: Type.STRING, enum: ["EXPENSE", "INCOME"] },
+                    },
+                    required: ["date", "description", "category", "amount", "type"],
+                  },
+                },
+                summary: {
+                  type: Type.OBJECT,
+                  properties: {
+                    totalIncome: { type: Type.INTEGER },
+                    totalExpense: { type: Type.INTEGER },
+                    remainingBalance: { type: Type.INTEGER },
+                    workerName: { type: Type.STRING },
+                    reportMonth: { type: Type.STRING },
+                  },
+                  required: ["totalIncome", "totalExpense", "remainingBalance"],
+                },
               },
-              required: ["totalIncome", "totalExpense", "remainingBalance"],
+              required: ["transactions", "summary"],
             },
           },
-          required: ["transactions", "summary"],
-        },
-      },
-    });
+        });
+        
+        if (response && response.text) {
+          console.log(`Successfully completed document analysis using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Model ${modelName} encountered an error: ${err.message || err}. Trying next available model...`);
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All fallback models failed to analyze the document.");
+    }
 
     const resultText = response.text;
     if (!resultText) {
