@@ -80,21 +80,40 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
             line-height: 1.4;
           }
           .header {
-            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 15px;
             margin-bottom: 20px;
             border-bottom: 2px solid #0f172a;
-            padding-bottom: 10px;
+            padding-bottom: 12px;
+            text-align: left;
+          }
+          .logo {
+            height: 52px;
+            width: auto;
+            object-fit: contain;
+          }
+          .header-text {
+            flex-grow: 1;
+          }
+          .header h1 {
+            margin: 0 0 2px 0;
+            font-size: 14px;
+            color: #1e3a8a;
+            font-weight: 800;
+            letter-spacing: 0.5px;
           }
           .header h2 {
             margin: 0 0 4px 0;
-            font-size: 16px;
+            font-size: 12px;
             color: #0f172a;
             text-transform: uppercase;
             letter-spacing: 0.5px;
           }
           .header p {
             margin: 0;
-            font-size: 10px;
+            font-size: 9px;
             color: #475569;
           }
           .meta-container {
@@ -179,8 +198,12 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
       </head>
       <body>
         <div class="header">
-          <h2>Laporan Absensi & Uang Makan Mingguan Karyawan</h2>
-          <p>KarsaField Pro &bull; Dokumen Rekap Lapangan Terverifikasi</p>
+          <img src="https://i.ibb.co.com/FqDNnD8W/Logo-Nusantara-Mineral-Abadi.webp" alt="Logo PT" class="logo" />
+          <div class="header-text">
+            <h1>PT. NUSANTARA MINERAL SUKSES ABADI</h1>
+            <h2>Laporan Absensi & Uang Makan Mingguan Karyawan</h2>
+            <p>Dokumen Rekap Lapangan Terverifikasi</p>
+          </div>
         </div>
         
         <div class="meta-container">
@@ -207,10 +230,6 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
             <tr>
               <td class="meta-label">Tanggal Cetak</td>
               <td class="meta-value">: &nbsp; ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}</td>
-            </tr>
-            <tr>
-              <td class="meta-label">Status Dokumen</td>
-              <td class="meta-value">: &nbsp; <span style="color: #16a34a; font-weight: bold;">✓ Terverifikasi Lapangan</span></td>
             </tr>
           </table>
         </div>
@@ -239,13 +258,13 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
         <div class="signature-container">
           <div class="signature-box">
             <div class="signature-title">Diterima & Diperiksa Oleh,</div>
-            <div class="signature-name">_________________________</div>
-            <div class="signature-role">Perwakilan Karyawan</div>
+            <div class="signature-name" style="text-decoration: none; border-bottom: 1.5px solid #000; padding-bottom: 2px;">Andi Dhiya Salsabila</div>
+            <div class="signature-role">Keuangan</div>
           </div>
           <div class="signature-box">
             <div class="signature-title">Diserahkan & Dilaporkan Oleh,</div>
             <div class="signature-name" style="text-decoration: none; border-bottom: 1.5px solid #000; padding-bottom: 2px;">Nur Wahyudi</div>
-            <div class="signature-role">Data Submission Staff</div>
+            <div class="signature-role">Staff Keuangan</div>
           </div>
         </div>
         
