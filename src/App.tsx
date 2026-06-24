@@ -30,7 +30,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
 import { INITIAL_WORKERS, INDONESIAN_DAYS, COMMON_CATEGORIES } from "./constants";
 import { triggerExcelDownload } from "./lib/excelGenerator";
-import { triggerAttendanceExcelDownload } from "./lib/attendanceSheetGenerator";
+import { triggerAttendanceExcelDownload, printWeeklyReportPDF } from "./lib/attendanceSheetGenerator";
 import { getOrCreateFolder, uploadFileToDrive, exportAttendanceToGoogleSheet } from "./lib/googleWorkspace";
 import { initAuth, googleSignIn, googleSignOut } from "./lib/firebase";
 
@@ -77,7 +77,10 @@ export default function App() {
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState<"absen" | "pettycash" | "workers">("absen");
-  const [globalAllowance, setGlobalAllowance] = useState<number>(50000); // Default Rp 50.000 per day
+  const [globalAllowance, setGlobalAllowance] = useState<number>(() => {
+    const saved = localStorage.getItem("global_allowance");
+    return saved ? Number(saved) : 25000;
+  });
 
   // --- Workspace Google Auth Simulation & Token ---
   const [googleToken, setGoogleToken] = useState<string>(() => {
@@ -157,6 +160,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("petty_cash_reports", JSON.stringify(pettyCashReports));
   }, [pettyCashReports]);
+
+  useEffect(() => {
+    localStorage.setItem("global_allowance", globalAllowance.toString());
+  }, [globalAllowance]);
 
   // Ensure record structure exists for each active worker for current week
   useEffect(() => {
@@ -736,7 +743,7 @@ export default function App() {
                 <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full text-xs text-emerald-800">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
                   <Globe className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="font-semibold text-emerald-800">Google Workspace Connect: Aktif</span>
+                  <span className="font-semibold text-emerald-800">Drive Terkoneksi: {googleUserEmail || "Aktif"}</span>
                   <button onClick={handleDisconnectGoogle} className="p-0.5 hover:bg-emerald-150 rounded-full text-emerald-600 ml-1 cursor-pointer">
                     <LogOut className="w-3 h-3" />
                   </button>
@@ -1127,6 +1134,14 @@ export default function App() {
 
                         <div className="flex items-center gap-2">
                           <button
+                            onClick={() => printWeeklyReportPDF(report, workers)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-xs hover:shadow-sm"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Cetak PDF</span>
+                          </button>
+
+                          <button
                             onClick={() => triggerAttendanceExcelDownload(report.weekStartDate, report.weekEndDate, report.records, workers, `Rekap_Uang_Makan_${report.weekStartDate}.xlsx`)}
                             className="bg-white hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer"
                           >
@@ -1395,37 +1410,76 @@ export default function App() {
                   </div>
 
                   {/* SUMMARY CARDS OF EXTRACED DOC */}
-                  <div className="p-6 grid grid-cols-1 md:grid-cols-4 gap-4 border-b border-slate-100">
+                  {(() => {
+                    const txs = activeWorkspaceReport.transactions;
+                    const firstTx = txs[0];
+                    const isSisaSaldo = firstTx && (
+                      firstTx.description.toLowerCase().includes("sisa") || 
+                      firstTx.description.toLowerCase().includes("awal") || 
+                      firstTx.description.toLowerCase().includes("sebelum")
+                    );
                     
-                    <div className="bg-slate-50 border border-slate-150 rounded-xl p-3.5">
-                      <div className="text-[10px] font-semibold text-slate-500 uppercase">Nama Pekerja / Staff</div>
-                      <div className="text-sm font-bold text-slate-900 mt-0.5 truncate">{activeWorkspaceReport.summary.workerName || "Pekerja Lapangan"}</div>
-                    </div>
+                    const saldoAwal = isSisaSaldo 
+                      ? (firstTx.type === TransactionType.INCOME ? firstTx.amount : -firstTx.amount) 
+                      : 0;
 
-                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3.5">
-                      <div className="text-[10px] font-semibold text-emerald-700 uppercase flex items-center gap-1">
-                        <TrendingUp className="w-3 h-3 text-emerald-500" />
-                        <span>Total Dropping (In)</span>
+                    const totalIncome = txs
+                      .filter((_, idx) => !(idx === 0 && isSisaSaldo))
+                      .reduce((sum, tx) => tx.type === TransactionType.INCOME ? sum + tx.amount : sum, 0);
+
+                    const totalExpense = txs
+                      .filter((_, idx) => !(idx === 0 && isSisaSaldo))
+                      .reduce((sum, tx) => tx.type === TransactionType.EXPENSE ? sum + tx.amount : sum, 0);
+
+                    const saldoAkhir = saldoAwal + totalIncome - totalExpense;
+
+                    return (
+                      <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border-b border-slate-100 bg-slate-50/40">
+                        {/* 1. NAMA PEKERJA */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
+                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Nama Pekerja / Staff</div>
+                          <div className="text-sm font-bold text-slate-900 mt-1 truncate">{activeWorkspaceReport.summary.workerName || "Pekerja Lapangan"}</div>
+                        </div>
+
+                        {/* 2. SALDO AWAL */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
+                          <div className="text-[10px] font-semibold text-blue-700 uppercase tracking-wider flex items-center gap-1">
+                            <DollarSign className="w-3.5 h-3.5 text-blue-500" />
+                            <span>Saldo Awal</span>
+                          </div>
+                          <div className={`text-sm font-bold mt-1 ${saldoAwal < 0 ? "text-red-600" : "text-slate-900"}`}>
+                            Rp {saldoAwal.toLocaleString("id-ID")}
+                          </div>
+                        </div>
+
+                        {/* 3. TOTAL PEMASUKAN */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
+                          <div className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+                            <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                            <span>Total Pemasukan</span>
+                          </div>
+                          <div className="text-sm font-bold text-emerald-600 mt-1">Rp {totalIncome.toLocaleString("id-ID")}</div>
+                        </div>
+
+                        {/* 4. TOTAL PENGELUARAN */}
+                        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
+                          <div className="text-[10px] font-semibold text-red-700 uppercase tracking-wider flex items-center gap-1">
+                            <TrendingDown className="w-3.5 h-3.5 text-red-500" />
+                            <span>Total Pengeluaran</span>
+                          </div>
+                          <div className="text-sm font-bold text-red-600 mt-1">Rp {totalExpense.toLocaleString("id-ID")}</div>
+                        </div>
+
+                        {/* 5. SALDO AKHIR */}
+                        <div className={`border rounded-xl p-3.5 shadow-2xs ${saldoAkhir < 0 ? "bg-red-50 border-red-200 text-red-900" : "bg-amber-50/50 border-amber-100 text-amber-900"}`}>
+                          <div className="text-[10px] font-semibold uppercase tracking-wider">Saldo Akhir</div>
+                          <div className="text-sm font-bold mt-1">
+                            Rp {saldoAkhir.toLocaleString("id-ID")}
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-sm font-bold text-slate-900 mt-0.5">Rp {activeWorkspaceReport.summary.totalIncome.toLocaleString("id-ID")}</div>
-                    </div>
-
-                    <div className="bg-red-50/50 border border-red-100 rounded-xl p-3.5">
-                      <div className="text-[10px] font-semibold text-red-700 uppercase flex items-center gap-1">
-                        <TrendingDown className="w-3 h-3 text-red-500" />
-                        <span>Total spent (out)</span>
-                      </div>
-                      <div className="text-sm font-bold text-slate-900 mt-0.5">Rp {activeWorkspaceReport.summary.totalExpense.toLocaleString("id-ID")}</div>
-                    </div>
-
-                    <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-3.5">
-                      <div className="text-[10px] font-semibold text-amber-700 uppercase">Sisa Saldo Kas Kecil</div>
-                      <div className={`text-sm font-bold mt-0.5 ${activeWorkspaceReport.summary.remainingBalance < 0 ? "text-red-600" : "text-amber-900"}`}>
-                        Rp {activeWorkspaceReport.summary.remainingBalance.toLocaleString("id-ID")}
-                      </div>
-                    </div>
-
-                  </div>
+                    );
+                  })()}
 
                   {/* EDITABLE TRANSACTIONS DATA TABLE */}
                   <div className="p-6">
@@ -1436,199 +1490,254 @@ export default function App() {
                       </span>
                     </div>
 
-                    <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                      <table className="w-full text-left border-collapse text-xs">
-                        <thead>
-                          <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase">
-                            <th className="p-3 w-10 text-center">No</th>
-                            <th className="p-3 w-28">Tanggal</th>
-                            <th className="p-3">Keterangan</th>
-                            <th className="p-3 w-28">Kategori</th>
-                            <th className="p-3 w-24">Tipe</th>
-                            <th className="p-3 w-28 text-right">Jumlah (Rp)</th>
-                            <th className="p-3 w-12 text-center">Aksi</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 font-medium">
-                          {activeWorkspaceReport.transactions.map((tx, index) => (
-                            <tr key={index} className="hover:bg-slate-50/30">
-                              <td className="p-3 text-center text-slate-400 font-mono">{index + 1}</td>
-                              <td className="p-3">
-                                <input
-                                  type="text"
-                                  value={tx.date}
-                                  onChange={(e) => {
-                                    const updated = [...activeWorkspaceReport.transactions];
-                                    updated[index] = { ...updated[index], date: e.target.value };
-                                    setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
-                                  }}
-                                  className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 focus:outline-none"
-                                />
-                              </td>
-                              <td className="p-3">
-                                <input
-                                  type="text"
-                                  value={tx.description}
-                                  onChange={(e) => {
-                                    const updated = [...activeWorkspaceReport.transactions];
-                                    updated[index] = { ...updated[index], description: e.target.value };
-                                    setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
-                                  }}
-                                  className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 focus:outline-none font-bold text-slate-800"
-                                />
-                              </td>
-                              <td className="p-3">
-                                <select
-                                  value={tx.category}
-                                  onChange={(e) => {
-                                    const updated = [...activeWorkspaceReport.transactions];
-                                    updated[index] = { ...updated[index], category: e.target.value };
-                                    setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
-                                  }}
-                                  className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 py-0.5 text-slate-700"
-                                >
-                                  {COMMON_CATEGORIES.map(cat => (
-                                    <option key={cat} value={cat}>{cat}</option>
-                                  ))}
-                                  <option value="Penerimaan Kas">Penerimaan Kas</option>
-                                </select>
-                              </td>
-                              <td className="p-3">
-                                <button
-                                  onClick={() => {
-                                    const updated = [...activeWorkspaceReport.transactions];
-                                    const nextType = updated[index].type === TransactionType.INCOME ? TransactionType.EXPENSE : TransactionType.INCOME;
-                                    updated[index] = { ...updated[index], type: nextType };
+                    {(() => {
+                      // Pre-calculate running balances for all rows
+                      const runningBalances: number[] = [];
+                      let balanceAccumulator = 0;
+                      activeWorkspaceReport.transactions.forEach((tx) => {
+                        if (tx.type === TransactionType.INCOME) {
+                          balanceAccumulator += tx.amount;
+                        } else {
+                          balanceAccumulator -= tx.amount;
+                        }
+                        runningBalances.push(balanceAccumulator);
+                      });
+
+                      return (
+                        <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                          <table className="w-full text-left border-collapse text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase">
+                                <th className="p-3 w-10 text-center">No</th>
+                                <th className="p-3 w-28">Tanggal</th>
+                                <th className="p-3">Keterangan / Catatan Pengeluaran</th>
+                                <th className="p-3 w-28">Kategori</th>
+                                <th className="p-3 w-32 text-right text-emerald-700">Pemasukan (In)</th>
+                                <th className="p-3 w-32 text-right text-red-700">Pengeluaran (Out)</th>
+                                <th className="p-3 w-36 text-right">Saldo (Running)</th>
+                                <th className="p-3 w-12 text-center">Aksi</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-medium">
+                              {activeWorkspaceReport.transactions.map((tx, index) => {
+                                const rowSaldo = runningBalances[index];
+                                return (
+                                  <tr key={index} className="hover:bg-slate-50/30">
+                                    <td className="p-3 text-center text-slate-400 font-mono">{index + 1}</td>
+                                    <td className="p-3">
+                                      <input
+                                        type="text"
+                                        value={tx.date}
+                                        onChange={(e) => {
+                                          const updated = [...activeWorkspaceReport.transactions];
+                                          updated[index] = { ...updated[index], date: e.target.value };
+                                          setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
+                                        }}
+                                        className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 focus:outline-none"
+                                      />
+                                    </td>
+                                    <td className="p-3">
+                                      <input
+                                        type="text"
+                                        value={tx.description}
+                                        onChange={(e) => {
+                                          const updated = [...activeWorkspaceReport.transactions];
+                                          updated[index] = { ...updated[index], description: e.target.value };
+                                          setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
+                                        }}
+                                        className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 focus:outline-none font-bold text-slate-800"
+                                      />
+                                    </td>
+                                    <td className="p-3">
+                                      <select
+                                        value={tx.category}
+                                        onChange={(e) => {
+                                          const updated = [...activeWorkspaceReport.transactions];
+                                          updated[index] = { ...updated[index], category: e.target.value };
+                                          setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
+                                        }}
+                                        className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 py-0.5 text-slate-700"
+                                      >
+                                        {COMMON_CATEGORIES.map(cat => (
+                                          <option key={cat} value={cat}>{cat}</option>
+                                        ))}
+                                        <option value="Penerimaan Kas">Penerimaan Kas</option>
+                                        <option value="Saldo Awal">Saldo Awal</option>
+                                      </select>
+                                    </td>
                                     
-                                    // Recalculate summary
-                                    let inc = 0, exp = 0;
-                                    updated.forEach(t => {
-                                      if (t.type === TransactionType.INCOME) inc += t.amount;
-                                      else exp += t.amount;
-                                    });
+                                    {/* Column 5: Pemasukan */}
+                                    <td className="p-3 text-right">
+                                      <input
+                                        type="number"
+                                        placeholder="0"
+                                        value={tx.type === TransactionType.INCOME ? (tx.amount || "") : ""}
+                                        onChange={(e) => {
+                                          const val = parseInt(e.target.value, 10) || 0;
+                                          const updated = [...activeWorkspaceReport.transactions];
+                                          updated[index] = { 
+                                            ...updated[index], 
+                                            amount: val, 
+                                            type: TransactionType.INCOME 
+                                          };
+                                          
+                                          let inc = 0, exp = 0;
+                                          updated.forEach(t => {
+                                            if (t.type === TransactionType.INCOME) inc += t.amount;
+                                            else exp += t.amount;
+                                          });
 
-                                    setActiveWorkspaceReport({
-                                      ...activeWorkspaceReport,
-                                      transactions: updated,
-                                      summary: {
-                                        ...activeWorkspaceReport.summary,
-                                        totalIncome: inc,
-                                        totalExpense: exp,
-                                        remainingBalance: inc - exp
-                                      }
-                                    });
-                                  }}
-                                  className={`px-2 py-0.5 rounded font-bold uppercase text-[9px] cursor-pointer inline-block ${
-                                    tx.type === "INCOME"
-                                      ? "bg-emerald-100 text-emerald-800"
-                                      : "bg-red-100 text-red-800"
-                                  }`}
-                                >
-                                  {tx.type === "INCOME" ? "Masuk (In)" : "Keluar (Out)"}
-                                </button>
-                              </td>
-                              <td className="p-3 text-right">
-                                <input
-                                  type="number"
-                                  value={tx.amount || 0}
-                                  onChange={(e) => {
-                                    const updated = [...activeWorkspaceReport.transactions];
-                                    updated[index] = { ...updated[index], amount: parseInt(e.target.value, 10) || 0 };
-                                    
-                                    let inc = 0, exp = 0;
-                                    updated.forEach(t => {
-                                      if (t.type === TransactionType.INCOME) inc += t.amount;
-                                      else exp += t.amount;
-                                    });
+                                          setActiveWorkspaceReport({
+                                            ...activeWorkspaceReport,
+                                            transactions: updated,
+                                            summary: {
+                                              ...activeWorkspaceReport.summary,
+                                              totalIncome: inc,
+                                              totalExpense: exp,
+                                              remainingBalance: inc - exp
+                                            }
+                                          });
+                                        }}
+                                        className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-emerald-300 text-right focus:outline-none font-bold text-emerald-600 font-mono"
+                                      />
+                                    </td>
 
-                                    setActiveWorkspaceReport({
-                                      ...activeWorkspaceReport,
-                                      transactions: updated,
-                                      summary: {
-                                        ...activeWorkspaceReport.summary,
-                                        totalIncome: inc,
-                                        totalExpense: exp,
-                                        remainingBalance: inc - exp
-                                      }
-                                    });
-                                  }}
-                                  className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 text-right focus:outline-none font-bold"
-                                />
-                              </td>
-                              <td className="p-3 text-center">
-                                <button
-                                  onClick={() => handleDeleteWorkspaceTx(index)}
-                                  className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-500 transition cursor-pointer"
-                                >
-                                  <Trash className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                                    {/* Column 6: Pengeluaran */}
+                                    <td className="p-3 text-right">
+                                      <input
+                                        type="number"
+                                        placeholder="0"
+                                        value={tx.type === TransactionType.EXPENSE ? (tx.amount || "") : ""}
+                                        onChange={(e) => {
+                                          const val = parseInt(e.target.value, 10) || 0;
+                                          const updated = [...activeWorkspaceReport.transactions];
+                                          updated[index] = { 
+                                            ...updated[index], 
+                                            amount: val, 
+                                            type: TransactionType.EXPENSE 
+                                          };
+                                          
+                                          let inc = 0, exp = 0;
+                                          updated.forEach(t => {
+                                            if (t.type === TransactionType.INCOME) inc += t.amount;
+                                            else exp += t.amount;
+                                          });
 
-                          {/* INLINE ROW TO ADD NEW TRANSACTION */}
-                          <tr className="bg-indigo-50/20 font-bold">
-                            <td className="p-3 text-center text-indigo-400 font-mono">+</td>
-                            <td className="p-3">
-                              <input
-                                type="date"
-                                value={newTxDate}
-                                onChange={(e) => setNewTxDate(e.target.value)}
-                                className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
-                              />
-                            </td>
-                            <td className="p-3">
-                              <input
-                                type="text"
-                                placeholder="Tambah baris manual (keterangan)..."
-                                value={newTxDesc}
-                                onChange={(e) => setNewTxDesc(e.target.value)}
-                                className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
-                              />
-                            </td>
-                            <td className="p-3">
-                              <select
-                                value={newTxCat}
-                                onChange={(e) => setNewTxCat(e.target.value)}
-                                className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
-                              >
-                                {COMMON_CATEGORIES.map(cat => (
-                                  <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                                <option value="Penerimaan Kas">Penerimaan Kas</option>
-                              </select>
-                            </td>
-                            <td className="p-3">
-                              <select
-                                value={newTxType}
-                                onChange={(e) => setNewTxType(e.target.value as TransactionType)}
-                                className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
-                              >
-                                <option value={TransactionType.EXPENSE}>Keluar (Out)</option>
-                                <option value={TransactionType.INCOME}>Masuk (In)</option>
-                              </select>
-                            </td>
-                            <td className="p-3">
-                              <input
-                                type="number"
-                                placeholder="Jumlah (Rupiah)"
-                                value={newTxAmount || ""}
-                                onChange={(e) => setNewTxAmount(parseInt(e.target.value, 10) || 0)}
-                                className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-right text-[11px]"
-                              />
-                            </td>
-                            <td className="p-3 text-center">
-                              <button
-                                onClick={handleAddWorkspaceTx}
-                                className="p-1 bg-indigo-650 hover:bg-indigo-700 rounded-lg text-white transition cursor-pointer flex items-center justify-center mx-auto"
-                              >
-                                <Plus className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                                          setActiveWorkspaceReport({
+                                            ...activeWorkspaceReport,
+                                            transactions: updated,
+                                            summary: {
+                                              ...activeWorkspaceReport.summary,
+                                              totalIncome: inc,
+                                              totalExpense: exp,
+                                              remainingBalance: inc - exp
+                                            }
+                                          });
+                                        }}
+                                        className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-red-300 text-right focus:outline-none font-bold text-red-600 font-mono"
+                                      />
+                                    </td>
+
+                                    {/* Column 7: Saldo (Running) */}
+                                    <td className={`p-3 text-right font-bold font-mono text-xs ${rowSaldo < 0 ? "text-red-600" : "text-slate-800"}`}>
+                                      Rp {rowSaldo.toLocaleString("id-ID")}
+                                    </td>
+
+                                    <td className="p-3 text-center">
+                                      <button
+                                        onClick={() => handleDeleteWorkspaceTx(index)}
+                                        className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-red-500 transition cursor-pointer"
+                                      >
+                                        <Trash className="w-3.5 h-3.5" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+
+                              {/* INLINE ROW TO ADD NEW TRANSACTION */}
+                              <tr className="bg-indigo-50/20 font-bold">
+                                <td className="p-3 text-center text-indigo-400 font-mono">+</td>
+                                <td className="p-3">
+                                  <input
+                                    type="date"
+                                    value={newTxDate}
+                                    onChange={(e) => setNewTxDate(e.target.value)}
+                                    className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
+                                  />
+                                </td>
+                                <td className="p-3">
+                                  <input
+                                    type="text"
+                                    placeholder="Tambah baris manual (keterangan)..."
+                                    value={newTxDesc}
+                                    onChange={(e) => setNewTxDesc(e.target.value)}
+                                    className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
+                                  />
+                                </td>
+                                <td className="p-3">
+                                  <select
+                                    value={newTxCat}
+                                    onChange={(e) => setNewTxCat(e.target.value)}
+                                    className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-[11px]"
+                                  >
+                                    {COMMON_CATEGORIES.map(cat => (
+                                      <option key={cat} value={cat}>{cat}</option>
+                                    ))}
+                                    <option value="Penerimaan Kas">Penerimaan Kas</option>
+                                    <option value="Saldo Awal">Saldo Awal</option>
+                                  </select>
+                                </td>
+                                
+                                {/* Pemasukan input for New Transaction */}
+                                <td className="p-3">
+                                  <input
+                                    type="number"
+                                    placeholder="Masuk"
+                                    value={newTxType === TransactionType.INCOME ? (newTxAmount || "") : ""}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value, 10) || 0;
+                                      setNewTxAmount(val);
+                                      setNewTxType(TransactionType.INCOME);
+                                    }}
+                                    className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-right text-[11px] font-bold text-emerald-600 font-mono"
+                                  />
+                                </td>
+
+                                {/* Pengeluaran input for New Transaction */}
+                                <td className="p-3">
+                                  <input
+                                    type="number"
+                                    placeholder="Keluar"
+                                    value={newTxType === TransactionType.EXPENSE ? (newTxAmount || "") : ""}
+                                    onChange={(e) => {
+                                      const val = parseInt(e.target.value, 10) || 0;
+                                      setNewTxAmount(val);
+                                      setNewTxType(TransactionType.EXPENSE);
+                                    }}
+                                    className="w-full bg-white px-2 py-1 border border-slate-250 rounded text-right text-[11px] font-bold text-red-600 font-mono"
+                                  />
+                                </td>
+
+                                {/* Readonly placeholder for cumulative Saldo in new row */}
+                                <td className="p-3 text-right text-[11px] text-slate-400 font-mono">
+                                  -
+                                </td>
+
+                                <td className="p-3 text-center">
+                                  <button
+                                    onClick={handleAddWorkspaceTx}
+                                    className="p-1 bg-indigo-650 hover:bg-indigo-700 rounded-lg text-white transition cursor-pointer flex items-center justify-center mx-auto"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
 
                     {/* GOOGLE DRIVE SYNC OUTCOME INJECTOR */}
                     {cloudSyncStatus.status !== "idle" && (

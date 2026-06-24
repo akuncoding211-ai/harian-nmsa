@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 1. Global Safety Net: Tutup semua akses default untuk keamanan penuh
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Fungsi Helper Utilitas Global yang Aman
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Memastikan ID dokumen bebas dari karakter berbahaya (ID Poisoning Guard)
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // 3. Aturan Koleksi Pengguna (Users Profile)
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isOwner(userId) || resource.data.isPublic == true);
+      allow list: if isSignedIn();
+      allow create: if isOwner(userId) 
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.createdAt == request.time;
+      allow update: if isOwner(userId)
+        && request.resource.data.createdAt == resource.data.createdAt // field buatan tidak boleh diubah
+        && request.resource.data.email == resource.data.email;
+      allow delete: if isOwner(userId);
+    }
+
+    // 4. Aturan Koleksi Laporan Petty Cash / Kuitansi (Jika ke depannya disimpan di Firebase Cloud)
+    match /petty_cash_reports/{reportId} {
+      allow read: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+      allow create: if isSignedIn() 
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow update: if isSignedIn() 
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}
