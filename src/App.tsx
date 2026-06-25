@@ -91,6 +91,10 @@ export default function App() {
   });
 
   // --- Workspace Google Auth Simulation & Token ---
+  // --- PWA Installation State ---
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBtn, setShowInstallBtn] = useState<boolean>(false);
+
   const [googleToken, setGoogleToken] = useState<string>(() => {
     return localStorage.getItem("g_access_token") || "";
   });
@@ -155,6 +159,35 @@ export default function App() {
     );
     return () => unsubscribe();
   }, []);
+
+  // Listen for PWA installation prompt
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallBtn(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+    // Check if app is already installed / running in standalone mode
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      setShowInstallBtn(false);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`PWA install option: ${outcome}`);
+    setDeferredPrompt(null);
+    setShowInstallBtn(false);
+  };
 
   // Save changes to localStorage on edit
   useEffect(() => {
@@ -749,6 +782,17 @@ export default function App() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {/* PWA INSTALLATION BUTTON */}
+            {showInstallBtn && (
+              <button
+                onClick={handleInstallPWA}
+                className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-3.5 py-2 rounded-full shadow-md hover:shadow-lg transition duration-150 cursor-pointer animate-pulse"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Pasang Aplikasi</span>
+              </button>
+            )}
+
             {/* GOOGLE INTEGRATION COMPONENT */}
             <div className="flex items-center gap-2">
               {isDriveConnected ? (
