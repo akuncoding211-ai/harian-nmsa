@@ -29,7 +29,9 @@ import {
   MessageSquare,
   Lock,
   Copy,
-  Check
+  Check,
+  MapPin,
+  AlertTriangle
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
@@ -38,6 +40,7 @@ import { triggerExcelDownload } from "./lib/excelGenerator";
 import { triggerAttendanceExcelDownload, printWeeklyReportPDF } from "./lib/attendanceSheetGenerator";
 import { getOrCreateFolder, uploadFileToDrive, exportAttendanceToGoogleSheet } from "./lib/googleWorkspace";
 import { initAuth, googleSignIn, googleSignOut } from "./lib/firebase";
+import { SignaturePad } from "./components/SignaturePad";
 
 // Utility to format Date as local YYYY-MM-DD
 function formatLocalYYYYMMDD(date: Date): string {
@@ -140,6 +143,16 @@ export default function App() {
   const [selfAttendMessage, setSelfAttendMessage] = useState<string>("");
   const [selfIsAttendedToday, setSelfIsAttendedToday] = useState<boolean>(false);
   const [liveTime, setLiveTime] = useState<string>("");
+
+  // Geolocation States for Workspace Verification
+  const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [geoStatus, setGeoStatus] = useState<"idle" | "requesting" | "available" | "denied" | "error">("idle");
+  const [geoErrorMsg, setGeoErrorMsg] = useState<string>("");
+  const [geoDistance, setGeoDistance] = useState<number | null>(null);
+
+  // Signatures for Friday Confirmation
+  const [signatures, setSignatures] = useState<Record<string, string>>({});
+  const [selfSignature, setSelfSignature] = useState<string | null>(null);
 
   // Bulk WA broadcast panel
   const [showBulkWA, setShowBulkWA] = useState<boolean>(false);
@@ -296,7 +309,8 @@ export default function App() {
     recordsList = attendanceRecords,
     weeklyRepList = weeklyReports,
     pettyRepList = pettyCashReports,
-    pinVal = attendancePin
+    pinVal = attendancePin,
+    signaturesList = signatures
   ) => {
     try {
       setServerSyncing(true);
@@ -311,6 +325,7 @@ export default function App() {
           weeklyReports: weeklyRepList,
           pettyCashReports: pettyRepList,
           attendancePin: pinVal,
+          signatures: signaturesList,
         }),
       });
       if (res.ok) {
@@ -337,6 +352,7 @@ export default function App() {
             if (data.weeklyReports) setWeeklyReports(data.weeklyReports);
             if (data.pettyCashReports) setPettyCashReports(data.pettyCashReports);
             if (data.attendancePin) setAttendancePin(data.attendancePin);
+            if (data.signatures) setSignatures(data.signatures);
             setLastSynced(new Date().toLocaleTimeString("id-ID"));
           } else {
             // Server has no data (first startup), sync our initial local storage data
@@ -349,6 +365,7 @@ export default function App() {
                 weeklyReports,
                 pettyCashReports,
                 attendancePin,
+                signatures,
               }),
             });
             setLastSynced(new Date().toLocaleTimeString("id-ID"));
@@ -368,7 +385,7 @@ export default function App() {
   useEffect(() => {
     if (!initialFetchDone) return;
     const timer = setTimeout(() => {
-      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin);
+      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures);
     }, 1200); // 1.2s debounce
     return () => clearTimeout(timer);
   }, [workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, initialFetchDone]);
@@ -407,6 +424,66 @@ export default function App() {
     }
   }, [selfWorkerId]);
 
+  // Geolocation Constants & Calculations
+  const OFFICE_LAT = -6.244342;
+  const OFFICE_LON = 106.843073;
+  const MAX_DISTANCE_METERS = 150;
+
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371e3; // metres
+    const phi1 = (lat1 * Math.PI) / 180;
+    const phi2 = (lat2 * Math.PI) / 180;
+    const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+    const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+    const a =
+      Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+      Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // in meters
+  };
+
+  const requestGeolocation = () => {
+    if (typeof window === "undefined" || !navigator.geolocation) {
+      setGeoStatus("error");
+      setGeoErrorMsg("Browser Anda tidak mendukung deteksi lokasi (Geolocation).");
+      return;
+    }
+
+    setGeoStatus("requesting");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        setUserCoords({ latitude: lat, longitude: lon });
+        
+        const dist = calculateDistance(lat, lon, OFFICE_LAT, OFFICE_LON);
+        setGeoDistance(dist);
+        setGeoStatus("available");
+      },
+      (error) => {
+        setGeoStatus("denied");
+        let msg = "Akses lokasi ditolak.";
+        if (error.code === error.PERMISSION_DENIED) {
+          msg = "Akses lokasi ditolak. Harap izinkan akses lokasi (GPS) di browser Anda untuk melakukan absensi.";
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          msg = "Informasi lokasi GPS tidak tersedia atau perangkat Anda tidak mengaktifkan GPS.";
+        } else if (error.code === error.TIMEOUT) {
+          msg = "Waktu permintaan lokasi habis.";
+        }
+        setGeoErrorMsg(msg);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  useEffect(() => {
+    if (selfWorkerId) {
+      requestGeolocation();
+    }
+  }, [selfWorkerId]);
+
   const handleSelfSubmitAttendance = async () => {
     if (!selfWorker) return;
     if (!selfInputPin.trim()) {
@@ -414,19 +491,52 @@ export default function App() {
       setSelfAttendMessage("PIN presensi harian wajib diisi.");
       return;
     }
+    if (geoStatus !== "available" || userCoords === null) {
+      setSelfAttendStatus("error");
+      setSelfAttendMessage("Lokasi GPS Anda belum terverifikasi. Harap aktifkan dan izinkan akses lokasi (GPS) terlebih dahulu.");
+      return;
+    }
+    if (geoDistance === null || geoDistance > MAX_DISTANCE_METERS) {
+      setSelfAttendStatus("error");
+      setSelfAttendMessage(`Gagal melakukan absensi. Lokasi Anda berada di luar radius kantor (${Math.round(geoDistance || 0)} meter).`);
+      return;
+    }
+
+    const isFriday = new Date().getDay() === 5;
+    if (isFriday && !selfSignature) {
+      setSelfAttendStatus("error");
+      setSelfAttendMessage("Hari Jumat terdeteksi. Anda wajib menyertakan tanda tangan atau paraf online Anda untuk mengkonfirmasi kehadiran.");
+      return;
+    }
+
     try {
       setSelfAttendStatus("idle");
       const todayYMD = formatLocalYYYYMMDD(new Date());
       const res = await fetch("/api/self-attend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workerId: selfWorker.id, date: todayYMD, pin: selfInputPin }),
+        body: JSON.stringify({ 
+          workerId: selfWorker.id, 
+          date: todayYMD, 
+          pin: selfInputPin,
+          latitude: userCoords.latitude,
+          longitude: userCoords.longitude,
+          signature: isFriday ? selfSignature : undefined
+        }),
       });
       const data = await res.json();
       if (res.ok) {
         setSelfAttendStatus("success");
         setSelfAttendMessage(data.message);
         setSelfIsAttendedToday(true);
+
+        // Update signatures state locally if provided
+        if (isFriday && selfSignature) {
+          setSignatures((prev) => ({
+            ...prev,
+            [selfWorker.id]: selfSignature,
+          }));
+        }
 
         // Update locally to keep visual states reactive
         const updatedRecords = attendanceRecords.map((r) => {
@@ -1155,8 +1265,83 @@ export default function App() {
                         Belum Presensi Hari Ini
                       </div>
                       <p className="text-xs text-slate-300 pt-2 leading-relaxed max-w-xs mx-auto">
-                        Silakan masukkan PIN Harian yang diberikan Mandor saat briefing pagi, kemudian tekan tombol di bawah untuk mencatat kehadiran.
+                        Silakan verifikasi lokasi Anda terlebih dahulu, masukkan PIN Harian dari Mandor saat briefing pagi, kemudian tekan tombol di bawah.
                       </p>
+                    </div>
+
+                    {/* GEOLOCATION VERIFICATION PANEL */}
+                    <div className="bg-slate-900/50 border border-slate-700/50 rounded-xl p-3.5 text-left space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Verifikasi Lokasi Kerja</span>
+                        <span className="text-[10px] font-mono text-slate-400 bg-slate-850 px-1.5 py-0.5 rounded">Maks. 150m</span>
+                      </div>
+                      
+                      {geoStatus === "requesting" && (
+                        <div className="flex items-center gap-2 text-xs text-indigo-300 bg-indigo-500/10 p-2 rounded-lg border border-indigo-500/20">
+                          <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                          <span>Mendeteksi lokasi GPS Anda...</span>
+                        </div>
+                      )}
+
+                      {geoStatus === "available" && geoDistance !== null && (
+                        (() => {
+                          const isNear = geoDistance <= MAX_DISTANCE_METERS;
+                          return (
+                            <div className="space-y-2">
+                              <div className={`p-2 rounded-lg border text-xs flex items-center justify-between ${
+                                isNear 
+                                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 font-semibold" 
+                                  : "bg-rose-500/10 border-rose-500/30 text-rose-400 font-semibold"
+                              }`}>
+                                <div className="flex items-center gap-1.5">
+                                  {isNear ? <MapPin className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+                                  <span>Jarak ke Kantor: ~{Math.round(geoDistance)} meter</span>
+                                </div>
+                                <span className="text-[10px] uppercase font-bold px-1.5 py-0.2 rounded-full font-mono bg-white/10">
+                                  {isNear ? "Diterima ✅" : "Terlalu Jauh ❌"}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-slate-400 leading-relaxed">
+                                {isNear 
+                                  ? "Anda berada di area kantor. Silakan masukkan PIN untuk melakukan absensi."
+                                  : `Anda berada di luar radius kantor yang ditentukan (${Math.round(geoDistance)}m). Silakan mendekat ke lokasi kantor.`
+                                }
+                              </p>
+                            </div>
+                          );
+                        })()
+                      )}
+
+                      {(geoStatus === "denied" || geoStatus === "error") && (
+                        <div className="space-y-2">
+                          <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs rounded-lg flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-400" />
+                            <div className="space-y-1">
+                              <p className="font-bold text-rose-400">Gagal Mengakses Lokasi</p>
+                              <p className="text-[10px] text-slate-400 leading-relaxed">{geoErrorMsg}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={requestGeolocation}
+                            className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Coba Lagi Akses GPS</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Hardcoded Office Location Context */}
+                      <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-[10px] space-y-1">
+                        <div className="font-bold text-slate-300 flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-rose-500" />
+                          <span>Titik Kantor Default (Terkunci)</span>
+                        </div>
+                        <p className="text-slate-400 leading-relaxed">
+                          Jl. Raya Pasar Minggu No. 2B-C, RT.2/RW.2, Pancoran, Kec. Pancoran, Jakarta Selatan (QR3V+W8 Pancoran)
+                        </p>
+                      </div>
                     </div>
 
                     {/* PIN INPUT FIELD */}
@@ -1172,16 +1357,45 @@ export default function App() {
                           maxLength={6}
                           placeholder="Masukkan PIN"
                           value={selfInputPin}
+                          disabled={geoStatus !== "available" || geoDistance === null || geoDistance > MAX_DISTANCE_METERS}
                           onChange={(e) => setSelfInputPin(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 pl-9 pr-4 text-sm text-center font-bold text-white tracking-widest placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full bg-slate-900 border border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl py-2.5 pl-9 pr-4 text-sm text-center font-bold text-white tracking-widest placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                       </div>
                     </div>
 
+                    {/* SIGNATURE / PARAF SECTION */}
+                    {(() => {
+                      const isFriday = new Date().getDay() === 5;
+                      return (
+                        <div className="max-w-xs mx-auto space-y-2 text-left border-t border-slate-700/40 pt-4">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                              Paraf Online / Tanda Tangan
+                            </label>
+                            {isFriday ? (
+                              <span className="text-[9px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider animate-pulse">
+                                Wajib (Hari Jumat)
+                              </span>
+                            ) : (
+                              <span className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
+                                Opsional
+                              </span>
+                            )}
+                          </div>
+                          
+                          <SignaturePad 
+                            workerName={selfWorker.name}
+                            onSignatureChange={(sig) => setSelfSignature(sig)}
+                          />
+                        </div>
+                      );
+                    })()}
+
                     <button
                       onClick={handleSelfSubmitAttendance}
-                      disabled={serverSyncing}
-                      className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 active:scale-[0.99] text-white font-bold text-sm py-3.5 px-6 rounded-xl transition duration-150 flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/30 hover:shadow-indigo-500/40"
+                      disabled={serverSyncing || geoStatus !== "available" || geoDistance === null || geoDistance > MAX_DISTANCE_METERS}
+                      className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 active:scale-[0.99] disabled:from-slate-800 disabled:to-slate-800/80 disabled:border-slate-700/50 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold text-sm py-3.5 px-6 rounded-xl transition duration-150 flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/30 hover:shadow-indigo-500/40"
                     >
                       {serverSyncing ? (
                         <>
@@ -1575,7 +1789,7 @@ export default function App() {
                             isSubmitted: false,
                             submittedAt: new Date().toISOString(),
                           };
-                          printWeeklyReportPDF(liveReport, workers);
+                          printWeeklyReportPDF(liveReport, workers, signatures);
                         }}
                         className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-300 font-bold text-xs text-slate-700 px-4 py-2 rounded-lg shadow-sm hover:shadow transition duration-150 cursor-pointer"
                       >
@@ -1602,7 +1816,7 @@ export default function App() {
                             isSubmitted: false,
                             submittedAt: new Date().toISOString(),
                           };
-                          printWeeklyReportPDF(liveReport, workers);
+                          printWeeklyReportPDF(liveReport, workers, signatures);
                         }}
                         className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-300 font-bold text-xs text-slate-700 px-4 py-2 rounded-lg shadow-sm hover:shadow transition duration-150 cursor-pointer"
                       >
@@ -1777,7 +1991,7 @@ export default function App() {
 
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => printWeeklyReportPDF(report, workers)}
+                            onClick={() => printWeeklyReportPDF(report, workers, signatures)}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer shadow-xs hover:shadow-sm"
                           >
                             <FileText className="w-3.5 h-3.5" />

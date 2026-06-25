@@ -43,6 +43,9 @@ function readState() {
       if (!parsed.attendancePin) {
         parsed.attendancePin = autoPin;
       }
+      if (!parsed.signatures) {
+        parsed.signatures = {};
+      }
       return parsed;
     }
   } catch (error) {
@@ -53,7 +56,8 @@ function readState() {
     attendanceRecords: [],
     weeklyReports: [],
     pettyCashReports: [],
-    attendancePin: autoPin
+    attendancePin: autoPin,
+    signatures: {}
   };
 }
 
@@ -92,7 +96,7 @@ app.get("/api/shared-state", (req, res) => {
 // POST Shared State (Save data from Admin dashboard)
 app.post("/api/shared-state", (req, res) => {
   try {
-    const { workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin } = req.body;
+    const { workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures } = req.body;
     const currentState = readState();
 
     const updatedState = {
@@ -101,6 +105,7 @@ app.post("/api/shared-state", (req, res) => {
       weeklyReports: weeklyReports !== undefined ? weeklyReports : currentState.weeklyReports,
       pettyCashReports: pettyCashReports !== undefined ? pettyCashReports : currentState.pettyCashReports,
       attendancePin: attendancePin !== undefined ? attendancePin : currentState.attendancePin,
+      signatures: signatures !== undefined ? signatures : currentState.signatures,
     };
 
     writeState(updatedState);
@@ -110,12 +115,43 @@ app.post("/api/shared-state", (req, res) => {
   }
 });
 
+// Geolocation Constants & Calculations
+const OFFICE_LAT = -6.244342;
+const OFFICE_LON = 106.843073;
+const MAX_DISTANCE_METERS = 150;
+
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371e3; // metres
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // in meters
+}
+
 // POST Self Attendance (Used by workers via WhatsApp links)
 app.post("/api/self-attend", (req, res) => {
   try {
-    const { workerId, date, pin } = req.body;
+    const { workerId, date, pin, latitude, longitude, signature } = req.body;
     if (!workerId || !date) {
       return res.status(400).json({ error: "ID pekerja dan tanggal wajib diisi." });
+    }
+
+    if (latitude === undefined || longitude === undefined) {
+      return res.status(400).json({ error: "Verifikasi lokasi GPS wajib diaktifkan untuk melakukan presensi mandiri." });
+    }
+
+    const distance = calculateDistance(latitude, longitude, OFFICE_LAT, OFFICE_LON);
+    if (distance > MAX_DISTANCE_METERS) {
+      return res.status(403).json({ 
+        error: `Gagal absen: Lokasi Anda terlalu jauh (~${Math.round(distance)} meter) dari kantor. Maksimal jarak yang diperbolehkan adalah ${MAX_DISTANCE_METERS} meter.` 
+      });
     }
 
     const state = readState();
@@ -162,9 +198,15 @@ app.post("/api/self-attend", (req, res) => {
       }
     }
 
+    const signatures = state.signatures || {};
+    if (signature) {
+      signatures[workerId] = signature;
+    }
+
     writeState({
       ...state,
-      attendanceRecords: records
+      attendanceRecords: records,
+      signatures
     });
 
     res.json({ 

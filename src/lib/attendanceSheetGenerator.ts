@@ -23,7 +23,7 @@ function getSafeDates(startDateStr: string): string[] {
   return dates;
 }
 
-export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
+export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], signatures?: { [workerId: string]: string }) {
   const dates = getSafeDates(report.weekStartDate);
   const dayNames = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat"];
   const workerMap = new Map(workers.map((w) => [w.id, w]));
@@ -48,10 +48,20 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
 
     const totalAllowance = totalAttendance * record.dailyAllowance;
 
-    // Alternate signature position for authentic look (Odd rows on the left, Even rows on the right)
-    const signatureContent = index % 2 === 0 
-      ? `<div style="text-align: left; padding-left: 10px; font-size: 8px; font-weight: bold; color: #475569;">${index + 1}. .......................</div>`
-      : `<div style="text-align: right; padding-right: 10px; font-size: 8px; font-weight: bold; color: #475569;">${index + 1}. .......................</div>`;
+    const workerSignatureUrl = signatures?.[record.workerId];
+    let signatureContent = "";
+    if (workerSignatureUrl) {
+      signatureContent = `
+        <div style="display: flex; flex-direction: column; align-items: ${index % 2 === 0 ? 'flex-start' : 'flex-end'}; padding: 2px 10px;">
+          <span style="font-size: 7px; color: #64748b; font-weight: bold; margin-bottom: 2px;">${index + 1}. Paraf Online</span>
+          <img src="${workerSignatureUrl}" style="max-height: 28px; max-width: 110px; object-fit: contain; background: transparent; mix-blend-mode: multiply;" />
+        </div>
+      `;
+    } else {
+      signatureContent = index % 2 === 0 
+        ? `<div style="text-align: left; padding-left: 10px; font-size: 8px; font-weight: bold; color: #475569;">${index + 1}. .......................</div>`
+        : `<div style="text-align: right; padding-right: 10px; font-size: 8px; font-weight: bold; color: #475569;">${index + 1}. .......................</div>`;
+    }
 
     return `
       <tr>
