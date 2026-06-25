@@ -24,7 +24,9 @@ import {
   RefreshCw,
   LogOut,
   HelpCircle,
-  FileCheck
+  FileCheck,
+  Phone,
+  MessageSquare
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
@@ -61,6 +63,20 @@ function getWeekRange(dateInput: Date) {
   };
 }
 
+// Utility to get beautiful Indonesian date string
+function getIndonesianDateStr(dateInput: Date): string {
+  const days = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  const months = [
+    "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+    "Juli", "Agustus", "September", "Oktober", "November", "Desember"
+  ];
+  const dayName = days[dateInput.getDay()];
+  const dateNum = dateInput.getDate();
+  const monthName = months[dateInput.getMonth()];
+  const yearNum = dateInput.getFullYear();
+  return `${dayName}, ${dateNum} ${monthName} ${yearNum}`;
+}
+
 export default function App() {
   // --- States ---
   const [workers, setWorkers] = useState<Worker[]>(() => {
@@ -89,6 +105,22 @@ export default function App() {
     const saved = localStorage.getItem("global_allowance");
     return saved ? Number(saved) : 25000;
   });
+
+  // --- Shared State Sync & Self-Attendance States ---
+  const [serverSyncing, setServerSyncing] = useState<boolean>(false);
+  const [lastSynced, setLastSynced] = useState<string>("");
+  const [initialFetchDone, setInitialFetchDone] = useState<boolean>(false);
+
+  // Self attendance worker details
+  const [selfWorker, setSelfWorker] = useState<Worker | null>(null);
+  const [selfAttendStatus, setSelfAttendStatus] = useState<"idle" | "success" | "error">("idle");
+  const [selfAttendMessage, setSelfAttendMessage] = useState<string>("");
+  const [selfIsAttendedToday, setSelfIsAttendedToday] = useState<boolean>(false);
+  const [liveTime, setLiveTime] = useState<string>("");
+
+  // Get selfWorkerId if present in URL query params
+  const urlParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const selfWorkerId = urlParams.get("workerId") || urlParams.get("id");
 
   // --- Workspace Google Auth Simulation & Token ---
   // --- PWA Installation State ---
@@ -222,6 +254,160 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("global_allowance", globalAllowance.toString());
   }, [globalAllowance]);
+
+  // --- Server Synchronization Logic ---
+  // Helper to sync state to server
+  const syncStateToServer = async (
+    workersList = workers,
+    recordsList = attendanceRecords,
+    weeklyRepList = weeklyReports,
+    pettyRepList = pettyCashReports
+  ) => {
+    try {
+      setServerSyncing(true);
+      const res = await fetch("/api/shared-state", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          workers: workersList,
+          attendanceRecords: recordsList,
+          weeklyReports: weeklyRepList,
+          pettyCashReports: pettyRepList,
+        }),
+      });
+      if (res.ok) {
+        setLastSynced(new Date().toLocaleTimeString("id-ID"));
+      }
+    } catch (err) {
+      console.error("Gagal sinkronisasi data ke server:", err);
+    } finally {
+      setServerSyncing(false);
+    }
+  };
+
+  // 1. Load shared state from server on mount
+  useEffect(() => {
+    const fetchSharedState = async () => {
+      try {
+        setServerSyncing(true);
+        const res = await fetch("/api/shared-state");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.workers && data.workers.length > 0) {
+            setWorkers(data.workers);
+            if (data.attendanceRecords) setAttendanceRecords(data.attendanceRecords);
+            if (data.weeklyReports) setWeeklyReports(data.weeklyReports);
+            if (data.pettyCashReports) setPettyCashReports(data.pettyCashReports);
+            setLastSynced(new Date().toLocaleTimeString("id-ID"));
+          } else {
+            // Server has no data (first startup), sync our initial local storage data
+            await fetch("/api/shared-state", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                workers,
+                attendanceRecords,
+                weeklyReports,
+                pettyCashReports,
+              }),
+            });
+            setLastSynced(new Date().toLocaleTimeString("id-ID"));
+          }
+        }
+      } catch (err) {
+        console.error("Gagal memuat shared-state dari server:", err);
+      } finally {
+        setServerSyncing(false);
+        setInitialFetchDone(true);
+      }
+    };
+    fetchSharedState();
+  }, []);
+
+  // 2. Debounced auto-save to server when states change (only after initial load)
+  useEffect(() => {
+    if (!initialFetchDone) return;
+    const timer = setTimeout(() => {
+      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports);
+    }, 1200); // 1.2s debounce
+    return () => clearTimeout(timer);
+  }, [workers, attendanceRecords, weeklyReports, pettyCashReports, initialFetchDone]);
+
+  // 3. Worker self-attendance handlers
+  useEffect(() => {
+    if (selfWorkerId && workers.length > 0) {
+      const matched = workers.find((w) => w.id === selfWorkerId);
+      if (matched) {
+        setSelfWorker(matched);
+      }
+    }
+  }, [selfWorkerId, workers]);
+
+  useEffect(() => {
+    if (selfWorker) {
+      const todayYMD = formatLocalYYYYMMDD(new Date());
+      const workerRecord = attendanceRecords.find((r) => r.workerId === selfWorker.id);
+      if (workerRecord && workerRecord.attendance && workerRecord.attendance[todayYMD]) {
+        setSelfIsAttendedToday(true);
+      } else {
+        setSelfIsAttendedToday(false);
+      }
+    }
+  }, [selfWorker, attendanceRecords]);
+
+  useEffect(() => {
+    if (selfWorkerId) {
+      const timer = setInterval(() => {
+        const now = new Date();
+        setLiveTime(
+          now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        );
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [selfWorkerId]);
+
+  const handleSelfSubmitAttendance = async () => {
+    if (!selfWorker) return;
+    try {
+      setSelfAttendStatus("idle");
+      const todayYMD = formatLocalYYYYMMDD(new Date());
+      const res = await fetch("/api/self-attend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId: selfWorker.id, date: todayYMD }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSelfAttendStatus("success");
+        setSelfAttendMessage(data.message);
+        setSelfIsAttendedToday(true);
+
+        // Update locally to keep visual states reactive
+        const updatedRecords = attendanceRecords.map((r) => {
+          if (r.workerId === selfWorker.id) {
+            return {
+              ...r,
+              attendance: {
+                ...r.attendance,
+                [todayYMD]: true,
+              },
+            };
+          }
+          return r;
+        });
+        setAttendanceRecords(updatedRecords);
+      } else {
+        setSelfAttendStatus("error");
+        setSelfAttendMessage(data.error || "Gagal mencatatkan kehadiran.");
+      }
+    } catch (err: any) {
+      setSelfAttendStatus("error");
+      setSelfAttendMessage(err.message || "Kesalahan koneksi ke server.");
+    }
+  };
 
   // Ensure record structure exists for each active worker for current week
   useEffect(() => {
@@ -734,6 +920,11 @@ export default function App() {
     setWorkers(workers.filter((w) => w.id !== workerId));
   };
 
+  const handleRemoveWeeklyReport = (reportId: string) => {
+    if (!window.confirm("Apakah Anda yakin ingin menghapus riwayat laporan jumat ini? Tindakan ini tidak dapat dibatalkan.")) return;
+    setWeeklyReports(weeklyReports.filter((r) => r.id !== reportId));
+  };
+
   // --- Google Connect Actions (Real Firebase Google Auth) ---
   const handleConnectGoogleReal = async () => {
     try {
@@ -817,6 +1008,161 @@ export default function App() {
     next.setDate(next.getDate() + 7);
     setSelectedDate(next);
   };
+
+  // --- CONDITIONAL RENDER: WORKER SELF-ATTENDANCE ---
+  if (selfWorkerId) {
+    const todayStr = getIndonesianDateStr(new Date());
+
+    return (
+      <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white font-sans p-4 relative overflow-hidden">
+        {/* Ambient background decoration */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-96 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-0 left-1/4 w-72 h-72 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
+
+        <header className="max-w-md w-full mx-auto pt-6 flex items-center justify-between border-b border-slate-800 pb-4 z-10">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-indigo-600 rounded-lg text-white">
+              <CheckSquare className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="font-bold text-sm tracking-tight font-display bg-gradient-to-r from-indigo-400 to-indigo-200 bg-clip-text text-transparent">KarsaField Pro</span>
+              <span className="block text-[10px] text-slate-400 font-mono">Absensi Mandiri</span>
+            </div>
+          </div>
+          <div className="text-right">
+            <span className="text-[10px] bg-slate-800 text-slate-300 border border-slate-700 px-2 py-0.5 rounded-full font-mono flex items-center gap-1">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping"></span>
+              Online
+            </span>
+          </div>
+        </header>
+
+        <main className="max-w-md w-full mx-auto my-auto py-8 z-10">
+          {!selfWorker ? (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-slate-800/80 backdrop-blur-md border border-slate-700/60 rounded-2xl p-6 text-center shadow-xl"
+            >
+              <AlertCircle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+              <h3 className="text-base font-bold text-slate-105">Memproses Data Karyawan...</h3>
+              <p className="text-xs text-slate-400 mt-2">
+                Sedang memverifikasi tautan absensi Anda. Harap tunggu beberapa saat atau hubungi admin/mandor lapangan jika terjadi kendala berkelanjutan.
+              </p>
+              <div className="mt-4 flex justify-center">
+                <RefreshCw className="w-5 h-5 text-indigo-400 animate-spin" />
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="space-y-6"
+            >
+              {/* Profile Card */}
+              <div className="bg-slate-800/80 backdrop-blur-md border border-slate-700/60 rounded-2xl p-5 shadow-xl">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 bg-indigo-500/20 text-indigo-300 rounded-full flex items-center justify-center font-bold font-display text-lg border border-indigo-500/30">
+                    {selfWorker.name.charAt(0)}
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest font-mono">Pekerja Terverifikasi</span>
+                    <h2 className="text-lg font-bold text-white leading-tight mt-0.5">{selfWorker.name}</h2>
+                    <p className="text-xs text-slate-300 font-medium mt-1">{selfWorker.role}</p>
+                    {selfWorker.nik && (
+                      <p className="text-[10px] text-slate-500 font-mono mt-0.5">NIK: {selfWorker.nik}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Date Time Display */}
+              <div className="bg-slate-800/40 border border-slate-800 rounded-2xl p-4 text-center">
+                <div className="text-xs text-slate-400 font-medium mb-1 flex items-center justify-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Tanggal & Waktu Server</span>
+                </div>
+                <div className="text-sm font-semibold text-slate-100">{todayStr}</div>
+                <div className="text-3xl font-bold font-mono text-indigo-300 tracking-wider mt-1">{liveTime || "--:--:--"}</div>
+              </div>
+
+              {/* Status & Check In Action Area */}
+              <div className="bg-slate-800/60 backdrop-blur-md border border-slate-700/50 rounded-2xl p-6 shadow-xl text-center space-y-4">
+                {selfIsAttendedToday ? (
+                  <div className="space-y-3 py-2">
+                    <div className="w-16 h-16 bg-emerald-500/20 text-emerald-400 rounded-full flex items-center justify-center mx-auto border border-emerald-500/30 shadow-lg shadow-emerald-500/10">
+                      <CheckCircle className="w-10 h-10" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-bold text-emerald-400">Presensi Berhasil Tercatat</h3>
+                      <p className="text-xs text-slate-300 mt-1.5 max-w-xs mx-auto leading-relaxed">
+                        Anda sudah melakukan absen hadir hari ini pada <strong>{todayStr}</strong>. Terima kasih atas kerja keras Anda di lapangan hari ini!
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-5">
+                    <div className="space-y-1">
+                      <div className="text-xs text-amber-400 bg-amber-400/10 px-3 py-1 rounded-full w-fit mx-auto font-semibold border border-amber-400/20">
+                        Belum Presensi Hari Ini
+                      </div>
+                      <p className="text-xs text-slate-300 pt-2 leading-relaxed max-w-xs mx-auto">
+                        Silakan tekan tombol di bawah ini untuk mencatatkan kehadiran Anda secara instan ke sistem dashboard mandor.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleSelfSubmitAttendance}
+                      disabled={serverSyncing}
+                      className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 active:scale-[0.99] text-white font-bold text-sm py-3.5 px-6 rounded-xl transition duration-150 flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/30 hover:shadow-indigo-500/40"
+                    >
+                      {serverSyncing ? (
+                        <>
+                          <RefreshCw className="w-5 h-5 animate-spin" />
+                          <span>Mencatat Absensi...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-5 h-5" />
+                          <span>Klik untuk Absen Hadir</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* API Status Feedback */}
+                {selfAttendStatus === "success" && (
+                  <div className="p-3 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-xs text-emerald-300">
+                    {selfAttendMessage}
+                  </div>
+                )}
+                {selfAttendStatus === "error" && (
+                  <div className="p-3 bg-rose-500/15 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2 justify-center">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{selfAttendMessage}</span>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </main>
+
+        <footer className="max-w-md w-full mx-auto border-t border-slate-800 pt-4 pb-6 text-center text-[10px] text-slate-500 z-10 space-y-1">
+          <p>© 2026 PT Nusantara Mineral Abadi. All Rights Reserved.</p>
+          <p>KarsaField Pro &bull; Presensi Digital Lapangan</p>
+          <div className="pt-2">
+            <a
+              href="/"
+              className="text-slate-400 hover:text-indigo-400 font-semibold underline transition"
+            >
+              Masuk ke Dashboard Mandor
+            </a>
+          </div>
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-indigo-500 selection:text-white" id="main_container">
@@ -1301,6 +1647,15 @@ export default function App() {
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>Excel</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleRemoveWeeklyReport(report.id)}
+                            className="bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition cursor-pointer"
+                            title="Hapus Laporan"
+                          >
+                            <Trash className="w-3.5 h-3.5 text-rose-500" />
+                            <span>Hapus</span>
                           </button>
 
                           {report.sheetsUrl ? (
@@ -2003,13 +2358,42 @@ export default function App() {
                         <td className="py-3.5 px-4 text-slate-700 font-medium">{worker.role}</td>
                         <td className="py-3.5 px-4">
                           <div className="text-slate-700 font-medium">{worker.phoneNumber || "-"}</div>
+                          
+                          {/* Self Attendance Link Generators */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <button
+                              onClick={() => {
+                                const link = `${window.location.origin}/?id=${worker.id}`;
+                                navigator.clipboard.writeText(link);
+                                alert(`Link absensi mandiri untuk ${worker.name} berhasil disalin!`);
+                              }}
+                              className="text-[9px] bg-indigo-50 hover:bg-indigo-150 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 transition cursor-pointer flex items-center gap-1 font-semibold"
+                              title="Salin Link Absensi"
+                            >
+                              <Globe className="w-2.5 h-2.5 text-indigo-500" />
+                              <span>Salin Link</span>
+                            </button>
+                            {worker.phoneNumber && (
+                              <a
+                                href={`https://api.whatsapp.com/send?phone=${worker.phoneNumber.replace(/^0/, "62")}&text=Halo%20${encodeURIComponent(worker.name)},%20silakan%20klik%20link%20berikut%20untuk%20absen%20hari%20ini%20di%20KarsaField%20Pro:%20${encodeURIComponent(window.location.origin + "/?id=" + worker.id)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[9px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 transition flex items-center gap-1 font-bold"
+                                title="Kirim Link ke WhatsApp"
+                              >
+                                <MessageSquare className="w-2.5 h-2.5 text-emerald-600" />
+                                <span>Kirim WA</span>
+                              </a>
+                            )}
+                          </div>
+
                           {worker.bankAccount ? (
-                            <div className="text-xs text-slate-500 mt-0.5 font-mono flex items-center gap-1">
+                            <div className="text-xs text-slate-500 mt-1.5 font-mono flex items-center gap-1">
                               <span className="font-bold text-indigo-600 bg-indigo-50 px-1 py-0.5 rounded text-[9px] uppercase tracking-wider border border-indigo-100">{worker.bankName || "BANK"}</span>
                               <span>{worker.bankAccount}</span>
                             </div>
                           ) : (
-                            <div className="text-[10px] text-slate-400 italic">Belum ada data rekening</div>
+                            <div className="text-[10px] text-slate-400 italic mt-1.5">Belum ada data rekening</div>
                           )}
                         </td>
                         <td className="py-3.5 px-4 text-center">

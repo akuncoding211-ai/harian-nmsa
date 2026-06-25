@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import dotenv from "dotenv";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 
@@ -12,6 +13,36 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 // Increase request size limit for PDF uploads
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// Path for state storage
+const DATA_FILE = path.join(process.cwd(), "data-store.json");
+
+// Helper to read state safely
+function readState() {
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, "utf-8");
+      return JSON.parse(raw);
+    }
+  } catch (error) {
+    console.error("Error reading data-store.json:", error);
+  }
+  return {
+    workers: [],
+    attendanceRecords: [],
+    weeklyReports: [],
+    pettyCashReports: []
+  };
+}
+
+// Helper to write state safely
+function writeState(data: any) {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+  } catch (error) {
+    console.error("Error writing data-store.json:", error);
+  }
+}
 
 // Initialize Gemini Client
 const ai = new GoogleGenAI({
@@ -26,6 +57,90 @@ const ai = new GoogleGenAI({
 // Server API Routes
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+// GET Shared State (Workers, attendance records, reports)
+app.get("/api/shared-state", (req, res) => {
+  res.json(readState());
+});
+
+// POST Shared State (Save data from Admin dashboard)
+app.post("/api/shared-state", (req, res) => {
+  try {
+    const { workers, attendanceRecords, weeklyReports, pettyCashReports } = req.body;
+    const currentState = readState();
+
+    const updatedState = {
+      workers: workers !== undefined ? workers : currentState.workers,
+      attendanceRecords: attendanceRecords !== undefined ? attendanceRecords : currentState.attendanceRecords,
+      weeklyReports: weeklyReports !== undefined ? weeklyReports : currentState.weeklyReports,
+      pettyCashReports: pettyCashReports !== undefined ? pettyCashReports : currentState.pettyCashReports,
+    };
+
+    writeState(updatedState);
+    res.json({ success: true, message: "State synchronized successfully" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to synchronize state" });
+  }
+});
+
+// POST Self Attendance (Used by workers via WhatsApp links)
+app.post("/api/self-attend", (req, res) => {
+  try {
+    const { workerId, date } = req.body;
+    if (!workerId || !date) {
+      return res.status(400).json({ error: "ID pekerja dan tanggal wajib diisi." });
+    }
+
+    const state = readState();
+    const workers = state.workers || [];
+    const records = state.attendanceRecords || [];
+
+    const worker = workers.find((w: any) => w.id === workerId && w.isActive);
+    if (!worker) {
+      return res.status(404).json({ error: "Pekerja tidak ditemukan atau status tidak aktif." });
+    }
+
+    // Attempt to find a record for this worker that already covers this date
+    let recordUpdated = false;
+    for (const r of records) {
+      if (r.workerId === workerId && r.attendance && r.attendance[date] !== undefined) {
+        r.attendance[date] = true;
+        recordUpdated = true;
+        break;
+      }
+    }
+
+    // If no existing record covers the date, create/append one
+    if (!recordUpdated) {
+      const workerRecord = records.find((r: any) => r.workerId === workerId);
+      if (workerRecord) {
+        if (!workerRecord.attendance) {
+          workerRecord.attendance = {};
+        }
+        workerRecord.attendance[date] = true;
+      } else {
+        records.push({
+          workerId,
+          attendance: { [date]: true },
+          dailyAllowance: 25000 // default allowance
+        });
+      }
+    }
+
+    writeState({
+      ...state,
+      attendanceRecords: records
+    });
+
+    res.json({ 
+      success: true, 
+      message: `Presensi berhasil tercatat! Terima kasih ${worker.name}.`,
+      workerName: worker.name
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Gagal melakukan absen mandiri" });
+  }
 });
 
 // Endpoint to Parse Petty Cash PDF / Image
