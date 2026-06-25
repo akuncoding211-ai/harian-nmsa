@@ -45,6 +45,22 @@ function formatLocalYYYYMMDD(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+// Helper to generate deterministic daily pin
+function getAutomaticDailyPin(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const dateStr = `${year}-${month}-${day}`;
+  
+  let hash = 0;
+  for (let i = 0; i < dateStr.length; i++) {
+    hash = dateStr.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const pin = Math.abs(hash % 9000) + 1000; // 4-digit PIN between 1000 and 9999
+  return String(pin);
+}
+
 // Utility to get current week's Monday and Friday dates
 function getWeekRange(dateInput: Date) {
   const d = new Date(dateInput);
@@ -113,7 +129,7 @@ export default function App() {
   const [initialFetchDone, setInitialFetchDone] = useState<boolean>(false);
 
   // Dynamic daily pin security
-  const [attendancePin, setAttendancePin] = useState<string>("1234");
+  const [attendancePin, setAttendancePin] = useState<string>(() => getAutomaticDailyPin());
   const [selfInputPin, setSelfInputPin] = useState<string>("");
 
   // Self attendance worker details
@@ -1038,13 +1054,18 @@ export default function App() {
         <div className="absolute bottom-0 left-1/4 w-72 h-72 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none"></div>
 
         <header className="max-w-md w-full mx-auto pt-6 flex items-center justify-between border-b border-slate-800 pb-4 z-10">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-indigo-600 rounded-lg text-white">
-              <CheckSquare className="w-5 h-5" />
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-white rounded-xl shadow-md overflow-hidden flex items-center justify-center p-0.5 border border-slate-700">
+              <img
+                src="https://i.ibb.co.com/FqDNnD8W/Logo-Nusantara-Mineral-Abadi.webp"
+                alt="Logo PT. Nusantara Mineral Sukses Abadi"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover rounded-lg"
+              />
             </div>
             <div>
-              <span className="font-bold text-sm tracking-tight font-display bg-gradient-to-r from-indigo-400 to-indigo-200 bg-clip-text text-transparent">KarsaField Pro</span>
-              <span className="block text-[10px] text-slate-400 font-mono">Absensi Mandiri</span>
+              <span className="font-bold text-xs tracking-tight font-display text-white block">PT. Nusantara Mineral Sukses Abadi</span>
+              <span className="block text-[10px] text-slate-400 font-medium">Aplikasi Rekap Allowance-Meal</span>
             </div>
           </div>
           <div className="text-right">
@@ -1265,8 +1286,8 @@ export default function App() {
         </main>
 
         <footer className="max-w-md w-full mx-auto border-t border-slate-800 pt-4 pb-6 text-center text-[10px] text-slate-500 z-10 space-y-1">
-          <p>© 2026 PT Nusantara Mineral Abadi. All Rights Reserved.</p>
-          <p>KarsaField Pro &bull; Presensi Digital Lapangan</p>
+          <p>© 2026 PT. Nusantara Mineral Sukses Abadi. All Rights Reserved.</p>
+          <p>Aplikasi Rekap Allowance-Meal &bull; Presensi Digital Lapangan</p>
         </footer>
       </div>
     );
@@ -1280,12 +1301,17 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-md shadow-indigo-100">
-              <CheckSquare className="w-6 h-6" />
+            <div className="w-16 h-16 bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden flex items-center justify-center p-0.5">
+              <img
+                src="https://i.ibb.co.com/FqDNnD8W/Logo-Nusantara-Mineral-Abadi.webp"
+                alt="Logo PT. Nusantara Mineral Sukses Abadi"
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover rounded-lg"
+              />
             </div>
             <div>
-              <h1 className="text-xl font-bold font-display text-slate-900 tracking-tight">KarsaField Pro</h1>
-              <p className="text-xs text-slate-500">Aplikasi Rekap Meal-Allowance & Petty Cash Lapangan</p>
+              <h1 className="text-base sm:text-lg md:text-xl font-bold font-display text-slate-900 tracking-tight">PT. Nusantara Mineral Sukses Abadi</h1>
+              <p className="text-xs text-slate-500 font-semibold">Aplikasi Rekap Allowance-Meal</p>
             </div>
           </div>
 
@@ -2517,7 +2543,7 @@ export default function App() {
                             </button>
                             {worker.phoneNumber && (
                               <a
-                                href={`https://api.whatsapp.com/send?phone=${worker.phoneNumber.replace(/^0/, "62")}&text=Halo%20${encodeURIComponent(worker.name)},%20silakan%20klik%20link%20berikut%20untuk%20absen%20hari%20ini%20di%20KarsaField%20Pro:%20${encodeURIComponent(window.location.origin + "/?id=" + worker.id)}`}
+                                href={`https://api.whatsapp.com/send?phone=${worker.phoneNumber.replace(/^0/, "62")}&text=${encodeURIComponent(`Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`)}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="text-[9px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 transition flex items-center gap-1 font-bold"
@@ -2824,7 +2850,7 @@ export default function App() {
                         const activeWorkers = workers.filter(w => w.isActive);
                         const compiled = activeWorkers.map(w => {
                           const link = `${window.location.origin}/?id=${w.id}`;
-                          return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *KarsaField Pro* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Mohon absen sebelum jam kerja berakhir agar jatah uang makan terekam._`;
+                          return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
                         }).join("\n\n-------------------------\n\n");
                         navigator.clipboard.writeText(compiled);
                         alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
@@ -2842,9 +2868,15 @@ export default function App() {
                     <div className="border border-slate-150 rounded-xl overflow-hidden divide-y divide-slate-100">
                       {workers.filter(w => w.isActive).map((w) => {
                         const link = `${window.location.origin}/?id=${w.id}`;
-                        const customMsg = `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *KarsaField Pro* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Mohon absen sebelum jam kerja berakhir agar jatah uang makan terekam._`;
+                        const customMsg = `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
                         const encodedMsg = encodeURIComponent(customMsg);
-                        const waUrl = `https://api.whatsapp.com/send?phone=${w.phone?.replace(/[^0-9]/g, "") || ""}&text=${encodedMsg}`;
+                        
+                        // Sanitize phone number (remove non-digits and replace leading '0' with '62' if necessary)
+                        let phoneClean = w.phoneNumber?.replace(/[^0-9]/g, "") || "";
+                        if (phoneClean.startsWith("0")) {
+                          phoneClean = "62" + phoneClean.slice(1);
+                        }
+                        const waUrl = `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
                         const isSent = !!bulkSentStatus[w.id];
 
                         return (
@@ -2856,7 +2888,7 @@ export default function App() {
                               </div>
                               <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
                                 <Phone className="w-3 h-3 text-slate-400" />
-                                <span>{w.phone || "No HP Kosong"}</span>
+                                <span>{w.phoneNumber || "No HP Kosong"}</span>
                               </div>
                             </div>
 
@@ -2901,8 +2933,8 @@ export default function App() {
       <footer className="bg-slate-900 text-slate-400 border-t border-slate-800 mt-12 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center sm:text-left flex flex-col sm:flex-row justify-between items-center gap-4">
           <div>
-            <div className="font-bold font-display text-white text-sm">KarsaField Pro v1.1</div>
-            <p className="text-xs text-slate-500 mt-1">&copy; 2026 KarsaField Corp. Hak Cipta Dilindungi.</p>
+            <div className="font-bold font-display text-white text-sm">PT. Nusantara Mineral Sukses Abadi</div>
+            <p className="text-xs text-slate-500 mt-1">&copy; 2026 PT. Nusantara Mineral Sukses Abadi. Hak Cipta Dilindungi.</p>
           </div>
           <div className="text-xs text-slate-500 leading-relaxed max-w-sm sm:text-right">
             Disinkronisasikan otomatis dengan Google Cloud Workspace melalui API aman. Uang makan divalidasi berkala setiap Jumat siang.

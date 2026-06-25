@@ -17,14 +17,31 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // Path for state storage
 const DATA_FILE = path.join(process.cwd(), "data-store.json");
 
+// Helper to generate deterministic daily pin
+function getAutomaticDailyPin(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const dateStr = `${year}-${month}-${day}`;
+  
+  let hash = 0;
+  for (let i = 0; i < dateStr.length; i++) {
+    hash = dateStr.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const pin = Math.abs(hash % 9000) + 1000; // 4-digit PIN between 1000 and 9999
+  return String(pin);
+}
+
 // Helper to read state safely
 function readState() {
+  const autoPin = getAutomaticDailyPin();
   try {
     if (fs.existsSync(DATA_FILE)) {
       const raw = fs.readFileSync(DATA_FILE, "utf-8");
       const parsed = JSON.parse(raw);
       if (!parsed.attendancePin) {
-        parsed.attendancePin = "1234";
+        parsed.attendancePin = autoPin;
       }
       return parsed;
     }
@@ -36,7 +53,7 @@ function readState() {
     attendanceRecords: [],
     weeklyReports: [],
     pettyCashReports: [],
-    attendancePin: "1234"
+    attendancePin: autoPin
   };
 }
 
@@ -44,7 +61,7 @@ function readState() {
 function writeState(data: any) {
   try {
     if (!data.attendancePin) {
-      data.attendancePin = "1234";
+      data.attendancePin = getAutomaticDailyPin();
     }
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (error) {
