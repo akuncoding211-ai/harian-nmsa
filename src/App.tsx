@@ -27,7 +27,9 @@ import {
   FileCheck,
   Phone,
   MessageSquare,
-  Lock
+  Lock,
+  Copy,
+  Check
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
@@ -142,6 +144,11 @@ export default function App() {
   // Bulk WA broadcast panel
   const [showBulkWA, setShowBulkWA] = useState<boolean>(false);
   const [bulkSentStatus, setBulkSentStatus] = useState<Record<string, boolean>>({});
+  const [waMethod, setWaMethod] = useState<"desktop" | "web">(() => {
+    return (localStorage.getItem("wa_method") as "desktop" | "web") || "desktop";
+  });
+  const [copiedWorkerMsgId, setCopiedWorkerMsgId] = useState<string | null>(null);
+  const [copiedWorkerLinkId, setCopiedWorkerLinkId] = useState<string | null>(null);
 
   // Get selfWorkerId if present in URL query params
   const urlParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
@@ -2489,6 +2496,38 @@ export default function App() {
                     </button>
                   </div>
 
+                  {/* WA METHOD SWITCHER */}
+                  <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-0.5" title="Metode membuka link WhatsApp">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWaMethod("desktop");
+                        localStorage.setItem("wa_method", "desktop");
+                      }}
+                      className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                        waMethod === "desktop"
+                          ? "bg-white text-slate-800 shadow-xs border border-slate-200"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Aplikasi PC
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWaMethod("web");
+                        localStorage.setItem("wa_method", "web");
+                      }}
+                      className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                        waMethod === "web"
+                          ? "bg-white text-slate-800 shadow-xs border border-slate-200"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      WA Web
+                    </button>
+                  </div>
+
                   {/* MASS WA BROADCAST BUTTON */}
                   <button
                     onClick={() => setShowBulkWA(true)}
@@ -2526,33 +2565,71 @@ export default function App() {
                         <td className="py-3.5 px-4 text-slate-700 font-medium">{worker.role}</td>
                         <td className="py-3.5 px-4">
                           <div className="text-slate-700 font-medium">{worker.phoneNumber || "-"}</div>
-                          
-                          {/* Self Attendance Link Generators */}
+                                                  {/* Self Attendance Link Generators */}
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             <button
                               onClick={() => {
                                 const link = `${window.location.origin}/?id=${worker.id}`;
                                 navigator.clipboard.writeText(link);
-                                alert(`Link absensi mandiri untuk ${worker.name} berhasil disalin!`);
+                                setCopiedWorkerLinkId(worker.id);
+                                setTimeout(() => setCopiedWorkerLinkId(null), 2000);
                               }}
-                              className="text-[9px] bg-indigo-50 hover:bg-indigo-150 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 transition cursor-pointer flex items-center gap-1 font-semibold"
+                              className="text-[9px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 transition cursor-pointer flex items-center gap-1 font-semibold"
                               title="Salin Link Absensi"
                             >
-                              <Globe className="w-2.5 h-2.5 text-indigo-500" />
-                              <span>Salin Link</span>
+                              {copiedWorkerLinkId === worker.id ? (
+                                <Check className="w-2.5 h-2.5 text-emerald-600" />
+                              ) : (
+                                <Globe className="w-2.5 h-2.5 text-indigo-500" />
+                              )}
+                              <span>{copiedWorkerLinkId === worker.id ? "Link Tersalin!" : "Salin Link"}</span>
                             </button>
-                            {worker.phoneNumber && (
-                              <a
-                                href={`https://api.whatsapp.com/send?phone=${worker.phoneNumber.replace(/^0/, "62")}&text=${encodeURIComponent(`Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`)}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[9px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 transition flex items-center gap-1 font-bold"
-                                title="Kirim Link ke WhatsApp"
-                              >
-                                <MessageSquare className="w-2.5 h-2.5 text-emerald-600" />
-                                <span>Kirim WA</span>
-                              </a>
-                            )}
+
+                            {/* COPY FULL WA MESSAGE */}
+                            <button
+                              onClick={() => {
+                                const link = `${window.location.origin}/?id=${worker.id}`;
+                                const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                                navigator.clipboard.writeText(customMsg);
+                                setCopiedWorkerMsgId(worker.id);
+                                setTimeout(() => setCopiedWorkerMsgId(null), 2000);
+                              }}
+                              className="text-[9px] bg-slate-50 hover:bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200 transition cursor-pointer flex items-center gap-1 font-semibold"
+                              title="Salin Seluruh Format Pesan WA"
+                            >
+                              {copiedWorkerMsgId === worker.id ? (
+                                <Check className="w-2.5 h-2.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-2.5 h-2.5 text-slate-500" />
+                              )}
+                              <span>{copiedWorkerMsgId === worker.id ? "Pesan Tersalin!" : "Salin Pesan WA"}</span>
+                            </button>
+
+                            {worker.phoneNumber && (() => {
+                              // Sanitize phone number (remove non-digits and replace leading '0' with '62' if necessary)
+                              let phoneClean = worker.phoneNumber?.replace(/[^0-9]/g, "") || "";
+                              if (phoneClean.startsWith("0")) {
+                                phoneClean = "62" + phoneClean.slice(1);
+                              }
+                              const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                              const encodedMsg = encodeURIComponent(customMsg);
+                              const waUrl = waMethod === "desktop" 
+                                ? `whatsapp://send?phone=${phoneClean}&text=${encodedMsg}`
+                                : `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
+
+                              return (
+                                <a
+                                  href={waUrl}
+                                  target={waMethod === "desktop" ? "_self" : "_blank"}
+                                  rel="noreferrer"
+                                  className="text-[9px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 transition flex items-center gap-1 font-bold"
+                                  title={waMethod === "desktop" ? "Kirim WA via Aplikasi Desktop" : "Kirim WA via Browser Tab"}
+                                >
+                                  <MessageSquare className="w-2.5 h-2.5 text-emerald-600" />
+                                  <span>{waMethod === "desktop" ? "Kirim WA (App)" : "Kirim WA (Web)"}</span>
+                                </a>
+                              );
+                            })()}
                           </div>
 
                           {worker.bankAccount ? (
@@ -2825,41 +2902,85 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto text-left">
+                <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto text-left font-sans">
                   {/* Info Warning */}
-                  <div className="p-4 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-800 space-y-1">
-                    <div className="font-bold flex items-center gap-1.5">
-                      <AlertCircle className="w-4 h-4 text-amber-600" />
-                      <span>Sistem Keamanan PIN Aktif</span>
+                  <div className="p-4 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-800 space-y-2">
+                    <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                      <AlertCircle className="w-4.5 h-4.5 text-amber-600" />
+                      <span>Sistem Keamanan PIN Aktif & Pilihan Metode Pengiriman</span>
                     </div>
                     <p className="leading-relaxed">
-                      Link absensi di bawah ini membutuhkan PIN Harian <strong className="font-mono text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{attendancePin}</strong> agar pekerja dapat melakukan check-in. Pastikan seluruh pekerja mengetahui PIN ini saat menerima pesan WhatsApp.
+                      Link absensi di bawah ini membutuhkan PIN Harian <strong className="font-mono text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{attendancePin}</strong> agar pekerja dapat melakukan check-in.
+                    </p>
+                    <p className="leading-relaxed bg-white/60 p-2.5 rounded-lg border border-amber-100 text-[11px] text-slate-700">
+                      💡 <strong>Tips Hemat Waktu:</strong> Pilih <strong>Aplikasi PC</strong> di bawah ini agar saat tombol diklik, browser tidak membuka tab baru melainkan langsung meluncurkan aplikasi WhatsApp Desktop Anda. Atau, gunakan tombol <strong>Salin Pesan</strong> untuk menyalin teks penuh beserta tautannya dan langsung menempelkannya (paste) ke WhatsApp tanpa membuka tab baru sama sekali!
                     </p>
                   </div>
 
-                  {/* Actions Bar */}
-                  <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center bg-slate-50 p-4 rounded-xl border border-slate-150">
+                  {/* Actions Bar & Settings */}
+                  <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-slate-50 p-4 rounded-xl border border-slate-150">
                     <div>
-                      <span className="text-xs text-slate-500 font-medium">Total Pekerja Aktif:</span>
-                      <div className="text-lg font-bold text-slate-900">
+                      <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Total Karyawan Aktif</span>
+                      <div className="text-xl font-bold text-slate-900">
                         {workers.filter(w => w.isActive).length} Orang
                       </div>
                     </div>
-                    <button
-                      onClick={() => {
-                        const activeWorkers = workers.filter(w => w.isActive);
-                        const compiled = activeWorkers.map(w => {
-                          const link = `${window.location.origin}/?id=${w.id}`;
-                          return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
-                        }).join("\n\n-------------------------\n\n");
-                        navigator.clipboard.writeText(compiled);
-                        alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
-                      }}
-                      className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-100 cursor-pointer"
-                    >
-                      <FileCheck className="w-4 h-4" />
-                      <span>Salin Semua Format Pesan (Clipboard)</span>
-                    </button>
+
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {/* Segmented Control in Modal */}
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">Metode Kirim WA:</span>
+                        <div className="flex items-center gap-1 bg-slate-200/80 rounded-xl p-1 border border-slate-300/40">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWaMethod("desktop");
+                              localStorage.setItem("wa_method", "desktop");
+                            }}
+                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                              waMethod === "desktop"
+                                ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            Aplikasi PC
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWaMethod("web");
+                              localStorage.setItem("wa_method", "web");
+                            }}
+                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                              waMethod === "web"
+                                ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            WA Web
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] text-transparent select-none font-bold block">Action:</span>
+                        <button
+                          onClick={() => {
+                            const activeWorkers = workers.filter(w => w.isActive);
+                            const compiled = activeWorkers.map(w => {
+                              const link = `${window.location.origin}/?id=${w.id}`;
+                              return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                            }).join("\n\n-------------------------\n\n");
+                            navigator.clipboard.writeText(compiled);
+                            alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
+                          }}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-100 cursor-pointer"
+                        >
+                          <FileCheck className="w-4 h-4" />
+                          <span>Salin Semua Format</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
 
                   {/* List of Workers */}
@@ -2876,7 +2997,10 @@ export default function App() {
                         if (phoneClean.startsWith("0")) {
                           phoneClean = "62" + phoneClean.slice(1);
                         }
-                        const waUrl = `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
+                        
+                        const waUrl = waMethod === "desktop"
+                          ? `whatsapp://send?phone=${phoneClean}&text=${encodedMsg}`
+                          : `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
                         const isSent = !!bulkSentStatus[w.id];
 
                         return (
@@ -2903,18 +3027,41 @@ export default function App() {
                                 </span>
                               )}
 
-                              <a
-                                href={waUrl}
-                                target="_blank"
-                                rel="noreferrer"
+                              {/* Copy custom message */}
+                              <button
                                 onClick={() => {
+                                  navigator.clipboard.writeText(customMsg);
+                                  setCopiedWorkerMsgId(w.id);
+                                  setTimeout(() => setCopiedWorkerMsgId(null), 2000);
                                   setBulkSentStatus(prev => ({ ...prev, [w.id]: true }));
                                 }}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer border border-slate-200"
+                                title="Salin pesan beserta link ke clipboard"
                               >
-                                <MessageSquare className="w-3.5 h-3.5" />
-                                <span>Kirim WA</span>
-                              </a>
+                                {copiedWorkerMsgId === w.id ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5 text-slate-500" />
+                                )}
+                                <span>{copiedWorkerMsgId === w.id ? "Pesan Tersalin!" : "Salin Pesan"}</span>
+                              </button>
+
+                              {w.phoneNumber ? (
+                                <a
+                                  href={waUrl}
+                                  target={waMethod === "desktop" ? "_self" : "_blank"}
+                                  rel="noreferrer"
+                                  onClick={() => {
+                                    setBulkSentStatus(prev => ({ ...prev, [w.id]: true }));
+                                  }}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                  <span>{waMethod === "desktop" ? "Kirim WA (App)" : "Kirim WA (Web)"}</span>
+                                </a>
+                              ) : (
+                                <span className="text-[11px] text-slate-400 italic">No HP Kosong</span>
+                              )}
                             </div>
                           </div>
                         );
