@@ -26,7 +26,8 @@ import {
   HelpCircle,
   FileCheck,
   Phone,
-  MessageSquare
+  MessageSquare,
+  Lock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
@@ -111,12 +112,20 @@ export default function App() {
   const [lastSynced, setLastSynced] = useState<string>("");
   const [initialFetchDone, setInitialFetchDone] = useState<boolean>(false);
 
+  // Dynamic daily pin security
+  const [attendancePin, setAttendancePin] = useState<string>("1234");
+  const [selfInputPin, setSelfInputPin] = useState<string>("");
+
   // Self attendance worker details
   const [selfWorker, setSelfWorker] = useState<Worker | null>(null);
   const [selfAttendStatus, setSelfAttendStatus] = useState<"idle" | "success" | "error">("idle");
   const [selfAttendMessage, setSelfAttendMessage] = useState<string>("");
   const [selfIsAttendedToday, setSelfIsAttendedToday] = useState<boolean>(false);
   const [liveTime, setLiveTime] = useState<string>("");
+
+  // Bulk WA broadcast panel
+  const [showBulkWA, setShowBulkWA] = useState<boolean>(false);
+  const [bulkSentStatus, setBulkSentStatus] = useState<Record<string, boolean>>({});
 
   // Get selfWorkerId if present in URL query params
   const urlParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
@@ -261,7 +270,8 @@ export default function App() {
     workersList = workers,
     recordsList = attendanceRecords,
     weeklyRepList = weeklyReports,
-    pettyRepList = pettyCashReports
+    pettyRepList = pettyCashReports,
+    pinVal = attendancePin
   ) => {
     try {
       setServerSyncing(true);
@@ -275,6 +285,7 @@ export default function App() {
           attendanceRecords: recordsList,
           weeklyReports: weeklyRepList,
           pettyCashReports: pettyRepList,
+          attendancePin: pinVal,
         }),
       });
       if (res.ok) {
@@ -300,6 +311,7 @@ export default function App() {
             if (data.attendanceRecords) setAttendanceRecords(data.attendanceRecords);
             if (data.weeklyReports) setWeeklyReports(data.weeklyReports);
             if (data.pettyCashReports) setPettyCashReports(data.pettyCashReports);
+            if (data.attendancePin) setAttendancePin(data.attendancePin);
             setLastSynced(new Date().toLocaleTimeString("id-ID"));
           } else {
             // Server has no data (first startup), sync our initial local storage data
@@ -311,6 +323,7 @@ export default function App() {
                 attendanceRecords,
                 weeklyReports,
                 pettyCashReports,
+                attendancePin,
               }),
             });
             setLastSynced(new Date().toLocaleTimeString("id-ID"));
@@ -330,10 +343,10 @@ export default function App() {
   useEffect(() => {
     if (!initialFetchDone) return;
     const timer = setTimeout(() => {
-      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports);
+      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin);
     }, 1200); // 1.2s debounce
     return () => clearTimeout(timer);
-  }, [workers, attendanceRecords, weeklyReports, pettyCashReports, initialFetchDone]);
+  }, [workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, initialFetchDone]);
 
   // 3. Worker self-attendance handlers
   useEffect(() => {
@@ -371,13 +384,18 @@ export default function App() {
 
   const handleSelfSubmitAttendance = async () => {
     if (!selfWorker) return;
+    if (!selfInputPin.trim()) {
+      setSelfAttendStatus("error");
+      setSelfAttendMessage("PIN presensi harian wajib diisi.");
+      return;
+    }
     try {
       setSelfAttendStatus("idle");
       const todayYMD = formatLocalYYYYMMDD(new Date());
       const res = await fetch("/api/self-attend", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workerId: selfWorker.id, date: todayYMD }),
+        body: JSON.stringify({ workerId: selfWorker.id, date: todayYMD, pin: selfInputPin }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -1107,8 +1125,27 @@ export default function App() {
                         Belum Presensi Hari Ini
                       </div>
                       <p className="text-xs text-slate-300 pt-2 leading-relaxed max-w-xs mx-auto">
-                        Silakan tekan tombol di bawah ini untuk mencatatkan kehadiran Anda secara instan ke sistem dashboard mandor.
+                        Silakan masukkan PIN Harian yang diberikan Mandor saat briefing pagi, kemudian tekan tombol di bawah untuk mencatat kehadiran.
                       </p>
+                    </div>
+
+                    {/* PIN INPUT FIELD */}
+                    <div className="max-w-xs mx-auto space-y-1 text-left">
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">PIN Presensi Harian</label>
+                      <div className="relative">
+                        <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400">
+                          <Lock className="w-4 h-4" />
+                        </span>
+                        <input
+                          type="password"
+                          inputMode="numeric"
+                          maxLength={6}
+                          placeholder="Masukkan PIN"
+                          value={selfInputPin}
+                          onChange={(e) => setSelfInputPin(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 pl-9 pr-4 text-sm text-center font-bold text-white tracking-widest placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
                     </div>
 
                     <button
@@ -1144,6 +1181,85 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* WEEKLY HISTORY CARD */}
+              <div className="bg-slate-800/80 backdrop-blur-md border border-slate-700/60 rounded-2xl p-5 shadow-xl space-y-4">
+                <div className="border-b border-slate-700 pb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-100">Riwayat Presensi Minggu Ini</h3>
+                    <p className="text-[10px] text-slate-400">Senin s/d Jumat</p>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
+                      Uang Makan: Rp {globalAllowance.toLocaleString("id-ID")}/Hari
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5">
+                  {(() => {
+                    const record = attendanceRecords.find((r) => r.workerId === selfWorker.id);
+                    let presentCount = 0;
+
+                    return (
+                      <>
+                        <div className="divide-y divide-slate-800">
+                          {weekDates.map((dateStr) => {
+                            const isPresent = record?.attendance && record.attendance[dateStr] === true;
+                            if (isPresent) presentCount++;
+
+                            const dayNamesMap: Record<string, string> = {
+                              Monday: "Senin",
+                              Tuesday: "Selasa",
+                              Wednesday: "Rabu",
+                              Thursday: "Kamis",
+                              Friday: "Jumat",
+                            };
+                            const dayNameEn = new Date(dateStr).toLocaleDateString("en-US", { weekday: "long" });
+                            const dayNameId = dayNamesMap[dayNameEn] || dayNameEn;
+                            const splitted = dateStr.split("-");
+                            const displayDate = `${splitted[2]}/${splitted[1]}`;
+
+                            return (
+                              <div key={dateStr} className="py-2.5 flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                  <div className="font-semibold text-slate-200">{dayNameId}</div>
+                                  <div className="text-[10px] text-slate-500 font-mono">({displayDate})</div>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  {isPresent ? (
+                                    <>
+                                      <span className="text-[10px] font-bold text-emerald-400 font-mono bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                                        HADIR (+Rp {globalAllowance.toLocaleString("id-ID")})
+                                      </span>
+                                      <CheckCircle className="w-4 h-4 text-emerald-400" />
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="text-[10px] text-slate-500 font-mono bg-slate-900 border border-slate-800 px-2 py-0.5 rounded">
+                                        BELUM ABSEN
+                                      </span>
+                                      <div className="w-4 h-4 rounded-full border-2 border-slate-700"></div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* SUM OF ALLOWANCES */}
+                        <div className="pt-3 border-t border-slate-700 flex items-center justify-between text-xs font-semibold bg-slate-900/40 p-3 rounded-xl border border-slate-800">
+                          <div className="text-slate-400">Total Akumulasi Uang Makan:</div>
+                          <div className="text-emerald-400 font-bold font-display text-sm">
+                            Rp {(presentCount * globalAllowance).toLocaleString("id-ID")}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
             </motion.div>
           )}
         </main>
@@ -1151,14 +1267,6 @@ export default function App() {
         <footer className="max-w-md w-full mx-auto border-t border-slate-800 pt-4 pb-6 text-center text-[10px] text-slate-500 z-10 space-y-1">
           <p>© 2026 PT Nusantara Mineral Abadi. All Rights Reserved.</p>
           <p>KarsaField Pro &bull; Presensi Digital Lapangan</p>
-          <div className="pt-2">
-            <a
-              href="/"
-              className="text-slate-400 hover:text-indigo-400 font-semibold underline transition"
-            >
-              Masuk ke Dashboard Mandor
-            </a>
-          </div>
         </footer>
       </div>
     );
@@ -2307,28 +2415,62 @@ export default function App() {
             {/* MANAGE WORKERS LIST */}
             <div className="md:col-span-8 bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
               
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-4 mb-6 gap-4">
+              <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between border-b border-slate-100 pb-4 mb-6 gap-4">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 tracking-tight font-display">Daftar Pekerja Lapangan</h3>
                   <p className="text-xs text-slate-500">Daftar karyawan aktif yang berhak mendapatkan jatah uang makan harian.</p>
                 </div>
 
-                {/* GLOBAL ALLOWANCE CONFIG */}
-                <div className="flex items-center gap-2">
-                  <label className="text-xs font-semibold text-slate-600 block">Tarif Meal Allowance (Rp/Hari):</label>
-                  <input
-                    type="number"
-                    value={globalAllowance}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10) || 0;
-                      setGlobalAllowance(val);
-                      // Update active allowance records
-                      setAttendanceRecords(attendanceRecords.map(r => 
-                        r.attendance[weekStart] !== undefined ? { ...r, dailyAllowance: val } : r
-                      ));
-                    }}
-                    className="w-28 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-center font-bold text-slate-900 font-mono"
-                  />
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* GLOBAL ALLOWANCE CONFIG */}
+                  <div className="flex items-center gap-2 bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-1.5">
+                    <label className="text-[11px] font-semibold text-slate-600">Meal Allowance (Rp/Hari):</label>
+                    <input
+                      type="number"
+                      value={globalAllowance}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10) || 0;
+                        setGlobalAllowance(val);
+                        // Update active allowance records
+                        setAttendanceRecords(attendanceRecords.map(r => 
+                          r.attendance[weekStart] !== undefined ? { ...r, dailyAllowance: val } : r
+                        ));
+                      }}
+                      className="w-24 bg-white border border-slate-250 rounded-lg px-2 py-0.5 text-xs text-center font-bold text-slate-800 font-mono focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  {/* DAILY ATTENDANCE PIN CONFIG */}
+                  <div className="flex items-center gap-2 bg-indigo-50/60 border border-indigo-100 rounded-xl px-3 py-1.5">
+                    <Lock className="w-3.5 h-3.5 text-indigo-500" />
+                    <label className="text-[11px] font-semibold text-slate-600">PIN Harian:</label>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={attendancePin}
+                      onChange={(e) => setAttendancePin(e.target.value.replace(/\D/g, ""))}
+                      className="w-16 bg-white border border-indigo-200 rounded-lg px-2 py-0.5 text-xs text-center font-bold text-indigo-700 font-mono focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <button
+                      onClick={() => {
+                        const randPin = String(Math.floor(1000 + Math.random() * 9000));
+                        setAttendancePin(randPin);
+                      }}
+                      className="p-0.5 text-indigo-600 hover:text-indigo-800 transition rounded hover:bg-indigo-100/50"
+                      title="Acak PIN Baru"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* MASS WA BROADCAST BUTTON */}
+                  <button
+                    onClick={() => setShowBulkWA(true)}
+                    className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold text-xs px-3.5 py-2 rounded-xl transition cursor-pointer shadow-md shadow-emerald-600/10"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>Bagikan Link Massal (WA)</span>
+                  </button>
                 </div>
               </div>
 
@@ -2629,6 +2771,125 @@ export default function App() {
                     </button>
                   </div>
                 </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* BULK WA SHARING OVERLAY MODAL */}
+        <AnimatePresence>
+          {showBulkWA && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden"
+              >
+                <div className="bg-slate-50 px-6 py-4 border-b border-slate-150 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold text-slate-900 font-display text-base">Bagikan Link Presensi Massal (WhatsApp)</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Kirim link absen mandiri harian ke seluruh pekerja aktif sekaligus.</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowBulkWA(false)}
+                    className="text-slate-400 hover:text-slate-600 font-semibold text-xs py-1 px-2.5 bg-slate-100 hover:bg-slate-200 transition rounded-lg cursor-pointer"
+                  >
+                    Tutup
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto text-left">
+                  {/* Info Warning */}
+                  <div className="p-4 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-800 space-y-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-amber-600" />
+                      <span>Sistem Keamanan PIN Aktif</span>
+                    </div>
+                    <p className="leading-relaxed">
+                      Link absensi di bawah ini membutuhkan PIN Harian <strong className="font-mono text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{attendancePin}</strong> agar pekerja dapat melakukan check-in. Pastikan seluruh pekerja mengetahui PIN ini saat menerima pesan WhatsApp.
+                    </p>
+                  </div>
+
+                  {/* Actions Bar */}
+                  <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center bg-slate-50 p-4 rounded-xl border border-slate-150">
+                    <div>
+                      <span className="text-xs text-slate-500 font-medium">Total Pekerja Aktif:</span>
+                      <div className="text-lg font-bold text-slate-900">
+                        {workers.filter(w => w.isActive).length} Orang
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const activeWorkers = workers.filter(w => w.isActive);
+                        const compiled = activeWorkers.map(w => {
+                          const link = `${window.location.origin}/?id=${w.id}`;
+                          return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *KarsaField Pro* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Mohon absen sebelum jam kerja berakhir agar jatah uang makan terekam._`;
+                        }).join("\n\n-------------------------\n\n");
+                        navigator.clipboard.writeText(compiled);
+                        alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
+                      }}
+                      className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-100 cursor-pointer"
+                    >
+                      <FileCheck className="w-4 h-4" />
+                      <span>Salin Semua Format Pesan (Clipboard)</span>
+                    </button>
+                  </div>
+
+                  {/* List of Workers */}
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Daftar Pengiriman</h4>
+                    <div className="border border-slate-150 rounded-xl overflow-hidden divide-y divide-slate-100">
+                      {workers.filter(w => w.isActive).map((w) => {
+                        const link = `${window.location.origin}/?id=${w.id}`;
+                        const customMsg = `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *KarsaField Pro* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Mohon absen sebelum jam kerja berakhir agar jatah uang makan terekam._`;
+                        const encodedMsg = encodeURIComponent(customMsg);
+                        const waUrl = `https://api.whatsapp.com/send?phone=${w.phone?.replace(/[^0-9]/g, "") || ""}&text=${encodedMsg}`;
+                        const isSent = !!bulkSentStatus[w.id];
+
+                        return (
+                          <div key={w.id} className="p-3.5 bg-white hover:bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-xs text-slate-900">{w.name}</span>
+                                <span className="text-[10px] text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded font-mono font-medium">{w.role}</span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                                <Phone className="w-3 h-3 text-slate-400" />
+                                <span>{w.phone || "No HP Kosong"}</span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                              {isSent ? (
+                                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
+                                  Sudah Dikirim
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
+                                  Belum Dikirim
+                                </span>
+                              )}
+
+                              <a
+                                href={waUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={() => {
+                                  setBulkSentStatus(prev => ({ ...prev, [w.id]: true }));
+                                }}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>Kirim WA</span>
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
               </motion.div>
             </div>
           )}

@@ -22,7 +22,11 @@ function readState() {
   try {
     if (fs.existsSync(DATA_FILE)) {
       const raw = fs.readFileSync(DATA_FILE, "utf-8");
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (!parsed.attendancePin) {
+        parsed.attendancePin = "1234";
+      }
+      return parsed;
     }
   } catch (error) {
     console.error("Error reading data-store.json:", error);
@@ -31,13 +35,17 @@ function readState() {
     workers: [],
     attendanceRecords: [],
     weeklyReports: [],
-    pettyCashReports: []
+    pettyCashReports: [],
+    attendancePin: "1234"
   };
 }
 
 // Helper to write state safely
 function writeState(data: any) {
   try {
+    if (!data.attendancePin) {
+      data.attendancePin = "1234";
+    }
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
   } catch (error) {
     console.error("Error writing data-store.json:", error);
@@ -67,7 +75,7 @@ app.get("/api/shared-state", (req, res) => {
 // POST Shared State (Save data from Admin dashboard)
 app.post("/api/shared-state", (req, res) => {
   try {
-    const { workers, attendanceRecords, weeklyReports, pettyCashReports } = req.body;
+    const { workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin } = req.body;
     const currentState = readState();
 
     const updatedState = {
@@ -75,6 +83,7 @@ app.post("/api/shared-state", (req, res) => {
       attendanceRecords: attendanceRecords !== undefined ? attendanceRecords : currentState.attendanceRecords,
       weeklyReports: weeklyReports !== undefined ? weeklyReports : currentState.weeklyReports,
       pettyCashReports: pettyCashReports !== undefined ? pettyCashReports : currentState.pettyCashReports,
+      attendancePin: attendancePin !== undefined ? attendancePin : currentState.attendancePin,
     };
 
     writeState(updatedState);
@@ -87,12 +96,20 @@ app.post("/api/shared-state", (req, res) => {
 // POST Self Attendance (Used by workers via WhatsApp links)
 app.post("/api/self-attend", (req, res) => {
   try {
-    const { workerId, date } = req.body;
+    const { workerId, date, pin } = req.body;
     if (!workerId || !date) {
       return res.status(400).json({ error: "ID pekerja dan tanggal wajib diisi." });
     }
 
     const state = readState();
+    const serverPin = state.attendancePin || "1234";
+    if (!pin) {
+      return res.status(400).json({ error: "PIN presensi wajib dimasukkan." });
+    }
+    if (pin !== serverPin) {
+      return res.status(403).json({ error: "PIN presensi salah. Tanyakan PIN harian yang benar pada Mandor lapangan." });
+    }
+
     const workers = state.workers || [];
     const records = state.attendanceRecords || [];
 
