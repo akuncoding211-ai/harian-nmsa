@@ -83,38 +83,41 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
             display: flex;
             align-items: center;
             justify-content: flex-start;
-            gap: 15px;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #0f172a;
+            gap: 20px;
+            margin-bottom: 15px;
+            border-bottom: 2.5px solid #0f172a;
             padding-bottom: 12px;
             text-align: left;
           }
           .logo {
-            height: 52px;
+            height: 76px;
             width: auto;
             object-fit: contain;
           }
           .header-text {
-            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            height: 76px;
           }
           .header h1 {
-            margin: 0 0 2px 0;
-            font-size: 14px;
+            margin: 0 0 4px 0;
+            font-size: 16px;
             color: #1e3a8a;
             font-weight: 800;
             letter-spacing: 0.5px;
+            line-height: 1.2;
           }
           .header h2 {
-            margin: 0 0 4px 0;
-            font-size: 12px;
+            margin: 0;
+            font-size: 13px;
             color: #0f172a;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            line-height: 1.2;
           }
           .header p {
-            margin: 0;
-            font-size: 9px;
-            color: #475569;
+            display: none;
           }
           .meta-container {
             display: flex;
@@ -202,7 +205,6 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
           <div class="header-text">
             <h1>PT. NUSANTARA MINERAL SUKSES ABADI</h1>
             <h2>Laporan Absensi & Uang Makan Mingguan Karyawan</h2>
-            <p>Dokumen Rekap Lapangan Terverifikasi</p>
           </div>
         </div>
         
