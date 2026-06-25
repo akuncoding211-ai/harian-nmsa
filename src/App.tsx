@@ -121,6 +121,8 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [pettyCashHolderFilter, setPettyCashHolderFilter] = useState<string>("ALL");
+
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState<"absen" | "pettycash" | "workers">("absen");
   const [globalAllowance, setGlobalAllowance] = useState<number>(() => {
@@ -938,6 +940,11 @@ export default function App() {
     setPettyCashReports(pettyCashReports.map(r => r.id === updatedReport.id ? updatedReport : r));
   };
 
+  const updateWorkspaceReportAndSync = (updatedReport: PettyCashReport) => {
+    setActiveWorkspaceReport(updatedReport);
+    setPettyCashReports(pettyCashReports.map(r => r.id === updatedReport.id ? updatedReport : r));
+  };
+
   const handleDeletePettyCashReport = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm("Apakah Anda yakin ingin menghapus laporan petty cash ini dari riwayat?")) {
@@ -1516,6 +1523,41 @@ export default function App() {
     );
   }
 
+  // --- Petty Cash Multi-Worker Calculations ---
+  // Unique list of petty cash holders (from uploaded reports)
+  const existingHolders = Array.from(
+    new Set(
+      pettyCashReports
+        .map((r) => r.summary?.workerName)
+        .filter((name): name is string => typeof name === "string" && name.trim() !== "")
+    )
+  );
+
+  // All registered workers as potential holders
+  const registeredWorkerNames = workers.map(w => w.name);
+
+  // Combined sorted unique list of potential holders
+  const uniqueHolders = Array.from(
+    new Set([...existingHolders, ...registeredWorkerNames])
+  ).sort();
+
+  // Filter reports based on chosen filter
+  const filteredReports = pettyCashReports.filter((report) => {
+    if (pettyCashHolderFilter === "ALL") return true;
+    return report.summary?.workerName === pettyCashHolderFilter;
+  });
+
+  // Calculate stats for selected holder
+  let combinedIncome = 0;
+  let combinedExpense = 0;
+  let combinedBalance = 0;
+
+  filteredReports.forEach((report) => {
+    combinedIncome += report.summary?.totalIncome || 0;
+    combinedExpense += report.summary?.totalExpense || 0;
+    combinedBalance += report.summary?.remainingBalance || 0;
+  });
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-indigo-500 selection:text-white" id="main_container">
       
@@ -2087,34 +2129,114 @@ export default function App() {
 
         {/* TAB 2: PETTY CASH PDF OCR PARSER TO EXCEL AND GOOGLE DRIVE */}
         {activeTab === "pettycash" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" id="pettycash_tab_view">
-            
-            {/* LEFT AREA: UPLOADER & WORKSPACE HISTORY */}
-            <div className="lg:col-span-4 space-y-6">
+          <div className="space-y-6" id="pettycash_tab_view">
               
-              {/* FILE UPLOAD CARD */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
-                
-                <h3 className="text-base font-bold text-slate-900 font-display mb-2 flex items-center gap-1.5">
-                  <CloudUpload className="w-5 h-5 text-indigo-600" />
-                  <span>Upload PDF Petty Cash</span>
-                </h3>
-                <p className="text-xs text-slate-500 mb-4 text-balance">
-                  Unggah file laporan PDF atau JPG petty cash untuk membaca otomatis setiap transaksi menggunakan kecerdasan Gemini AI.
-                </p>
+              {/* BRAND NEW PREMIUM PORTFOLIO DASHBOARD PANEL */}
+              <div className="bg-slate-900 text-white rounded-2xl border border-slate-800 p-6 shadow-xl space-y-6">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                  {/* Left Side: Header & Context */}
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-mono font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2.5 py-1 rounded-full uppercase tracking-widest">
+                      Pertanggungjawaban Finansial Lapangan
+                    </span>
+                    <h2 className="text-xl font-extrabold font-display tracking-tight text-white mt-2">
+                      Buku Pembukuan Kas Kecil (Petty Cash) Per Pekerja
+                    </h2>
+                    <p className="text-xs text-slate-400 max-w-xl">
+                      Riwayat kwitansi & petty cash dikelompokkan secara terpisah untuk setiap pemegang dana taktis. Anda dapat memfilter, mentransfer, atau meninjau sisa saldo tersimpan masing-masing pekerja secara transparan.
+                    </p>
+                  </div>
 
-                {/* Drag and Drop Zone */}
-                <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-indigo-500 transition relative bg-slate-50/50">
-                  <input
-                    type="file"
-                    accept="application/pdf,image/*"
-                    onChange={handleFileChange}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-700">Tarik berkas ke sini atau Klik untuk memilih</p>
-                  <p className="text-[10px] text-slate-500 mt-1">PDF, PNG, JPG maks 10MB</p>
+                  {/* Right Side: Active Holder Select Dropdown */}
+                  <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col sm:flex-row items-start sm:items-center gap-3 shrink-0">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        Filter Pemegang Petty Cash:
+                      </label>
+                      <select
+                        value={pettyCashHolderFilter}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPettyCashHolderFilter(val);
+                          // Auto select first report of that holder if any
+                          const holderReports = pettyCashReports.filter(r => val === "ALL" ? true : r.summary?.workerName === val);
+                          if (holderReports.length > 0) {
+                            setActiveWorkspaceReport(holderReports[0]);
+                          } else {
+                            setActiveWorkspaceReport(null);
+                          }
+                        }}
+                        className="bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs font-bold text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer min-w-[200px]"
+                      >
+                        <option value="ALL">🔍 Semua Pemegang (Gabungan)</option>
+                        {uniqueHolders.map((name) => (
+                          <option key={name} value={name}>👤 {name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                 </div>
+
+                {/* Grid stats cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2 border-t border-slate-800">
+                  <div className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-4">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Target Pertanggungjawaban</span>
+                    <span className="text-sm font-bold text-indigo-300 block mt-1 truncate">
+                      {pettyCashHolderFilter === "ALL" ? "Gabungan Semua Pekerja" : pettyCashHolderFilter}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-4">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Penerimaan Kas</span>
+                    <span className="text-sm font-bold text-emerald-400 block mt-1">
+                      Rp {combinedIncome.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-4">
+                    <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Total Pengeluaran Kas</span>
+                    <span className="text-sm font-bold text-rose-400 block mt-1">
+                      Rp {combinedExpense.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+
+                  <div className={`rounded-xl p-4 border ${combinedBalance < 0 ? 'bg-red-950/30 border-red-800/80 text-red-200' : 'bg-indigo-950/30 border-indigo-800/80 text-indigo-100'}`}>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider block">Sisa Saldo Kas Terakhir</span>
+                    <span className="text-base font-extrabold block mt-1">
+                      Rp {combinedBalance.toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                {/* LEFT AREA: UPLOADER & WORKSPACE HISTORY */}
+                <div className="lg:col-span-4 space-y-6">
+                  
+                  {/* FILE UPLOAD CARD */}
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                    
+                    <h3 className="text-base font-bold text-slate-900 font-display mb-2 flex items-center gap-1.5">
+                      <CloudUpload className="w-5 h-5 text-indigo-600" />
+                      <span>Upload PDF Petty Cash</span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mb-4 text-balance">
+                      Unggah file laporan PDF atau JPG petty cash untuk membaca otomatis setiap transaksi menggunakan kecerdasan Gemini AI.
+                    </p>
+    
+                    {/* Drag and Drop Zone */}
+                    <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-indigo-500 transition relative bg-slate-50/50">
+                      <input
+                        type="file"
+                        accept="application/pdf,image/*"
+                        onChange={handleFileChange}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      />
+                      <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                      <p className="text-xs font-semibold text-slate-700">Tarik berkas ke sini atau Klik untuk memilih</p>
+                      <p className="text-[10px] text-slate-500 mt-1">PDF, PNG, JPG maks 10MB</p>
+                    </div>
 
                 {fileToUpload && (
                   <div className="mt-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-between">
@@ -2168,14 +2290,18 @@ export default function App() {
               <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
                 
                 <h3 className="text-sm font-bold text-slate-900 font-display mb-3">
-                  Riwayat Kwitansi / Petty Cash PDF ({pettyCashReports.length})
+                  Riwayat Kwitansi / Petty Cash PDF ({filteredReports.length})
                 </h3>
 
-                {pettyCashReports.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-4 text-center">Belum ada struk petty cash yang diproses.</p>
+                {filteredReports.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-4 text-center">
+                    {pettyCashHolderFilter === "ALL" 
+                      ? "Belum ada struk petty cash yang diproses." 
+                      : `Belum ada laporan petty cash untuk ${pettyCashHolderFilter}.`}
+                  </p>
                 ) : (
                   <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-                    {pettyCashReports.map((report) => (
+                    {filteredReports.map((report) => (
                       <div
                         key={report.id}
                         onClick={() => setActiveWorkspaceReport(report)}
@@ -2303,8 +2429,31 @@ export default function App() {
                       <div className="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 border-b border-slate-100 bg-slate-50/40">
                         {/* 1. NAMA PEKERJA */}
                         <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
-                          <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Nama Pekerja / Staff</div>
-                          <div className="text-sm font-bold text-slate-900 mt-1 truncate">{activeWorkspaceReport.summary.workerName || "Pekerja Lapangan"}</div>
+                          <div className="text-[10px] font-semibold text-indigo-700 uppercase tracking-wider">Pemegang Pertanggungjawaban</div>
+                          <select
+                            value={activeWorkspaceReport.summary.workerName || ""}
+                            onChange={(e) => {
+                              const newName = e.target.value;
+                              const updatedReport = {
+                                ...activeWorkspaceReport,
+                                summary: {
+                                  ...activeWorkspaceReport.summary,
+                                  workerName: newName
+                                }
+                              };
+                              setActiveWorkspaceReport(updatedReport);
+                              setPettyCashReports(pettyCashReports.map(r => r.id === updatedReport.id ? updatedReport : r));
+                            }}
+                            className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 mt-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                          >
+                            <option value="">-- Pilih Pemegang Kas --</option>
+                            {workers.map((w) => (
+                              <option key={w.id} value={w.name}>{w.name} ({w.role})</option>
+                            ))}
+                            {activeWorkspaceReport.summary.workerName && !workers.some(w => w.name === activeWorkspaceReport.summary.workerName) && (
+                              <option value={activeWorkspaceReport.summary.workerName}>👤 {activeWorkspaceReport.summary.workerName} (Ekstraksi AI)</option>
+                            )}
+                          </select>
                         </div>
 
                         {/* 2. SALDO AWAL */}
@@ -2397,7 +2546,7 @@ export default function App() {
                                         onChange={(e) => {
                                           const updated = [...activeWorkspaceReport.transactions];
                                           updated[index] = { ...updated[index], date: e.target.value };
-                                          setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
+                                          updateWorkspaceReportAndSync({ ...activeWorkspaceReport, transactions: updated });
                                         }}
                                         className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 focus:outline-none"
                                       />
@@ -2409,7 +2558,7 @@ export default function App() {
                                         onChange={(e) => {
                                           const updated = [...activeWorkspaceReport.transactions];
                                           updated[index] = { ...updated[index], description: e.target.value };
-                                          setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
+                                          updateWorkspaceReportAndSync({ ...activeWorkspaceReport, transactions: updated });
                                         }}
                                         className="w-full bg-transparent py-0.5 border-b border-transparent focus:border-slate-300 focus:outline-none font-bold text-slate-800"
                                       />
@@ -2420,7 +2569,7 @@ export default function App() {
                                         onChange={(e) => {
                                           const updated = [...activeWorkspaceReport.transactions];
                                           updated[index] = { ...updated[index], category: e.target.value };
-                                          setActiveWorkspaceReport({ ...activeWorkspaceReport, transactions: updated });
+                                          updateWorkspaceReportAndSync({ ...activeWorkspaceReport, transactions: updated });
                                         }}
                                         className="bg-transparent focus:outline-none border-b border-transparent focus:border-slate-300 py-0.5 text-slate-700"
                                       >
@@ -2453,7 +2602,7 @@ export default function App() {
                                             else exp += t.amount;
                                           });
 
-                                          setActiveWorkspaceReport({
+                                          updateWorkspaceReportAndSync({
                                             ...activeWorkspaceReport,
                                             transactions: updated,
                                             summary: {
@@ -2489,7 +2638,7 @@ export default function App() {
                                             else exp += t.amount;
                                           });
 
-                                          setActiveWorkspaceReport({
+                                          updateWorkspaceReportAndSync({
                                             ...activeWorkspaceReport,
                                             transactions: updated,
                                             summary: {
@@ -2655,7 +2804,8 @@ export default function App() {
             </div>
 
           </div>
-        )}
+        </div>
+      )}
 
         {/* TAB 3: WORKERS LIST & DEFAULTS MANAGER */}
         {activeTab === "workers" && (
