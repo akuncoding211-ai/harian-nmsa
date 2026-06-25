@@ -149,6 +149,8 @@ export default function App() {
   });
   const [copiedWorkerMsgId, setCopiedWorkerMsgId] = useState<string | null>(null);
   const [copiedWorkerLinkId, setCopiedWorkerLinkId] = useState<string | null>(null);
+  const [bulkViewMode, setBulkViewMode] = useState<"list" | "step">("list");
+  const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
 
   // Get selfWorkerId if present in URL query params
   const urlParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
@@ -2903,171 +2905,444 @@ export default function App() {
                 </div>
 
                 <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto text-left font-sans">
-                  {/* Info Warning */}
-                  <div className="p-4 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-800 space-y-2">
-                    <div className="font-bold flex items-center gap-1.5 text-amber-900">
-                      <AlertCircle className="w-4.5 h-4.5 text-amber-600" />
-                      <span>Sistem Keamanan PIN Aktif & Pilihan Metode Pengiriman</span>
-                    </div>
-                    <p className="leading-relaxed">
-                      Link absensi di bawah ini membutuhkan PIN Harian <strong className="font-mono text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{attendancePin}</strong> agar pekerja dapat melakukan check-in.
-                    </p>
-                    <p className="leading-relaxed bg-white/60 p-2.5 rounded-lg border border-amber-100 text-[11px] text-slate-700">
-                      💡 <strong>Tips Hemat Waktu:</strong> Pilih <strong>Aplikasi PC</strong> di bawah ini agar saat tombol diklik, browser tidak membuka tab baru melainkan langsung meluncurkan aplikasi WhatsApp Desktop Anda. Atau, gunakan tombol <strong>Salin Pesan</strong> untuk menyalin teks penuh beserta tautannya dan langsung menempelkannya (paste) ke WhatsApp tanpa membuka tab baru sama sekali!
-                    </p>
+                  {/* Mode Selector */}
+                  <div className="flex bg-slate-100 rounded-xl p-1 border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setBulkViewMode("list")}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all text-center cursor-pointer ${
+                        bulkViewMode === "list"
+                          ? "bg-white text-slate-900 shadow-sm border border-slate-250"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      Daftar Semua Karyawan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBulkViewMode("step");
+                        setCurrentStepIndex(0);
+                      }}
+                      className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all text-center cursor-pointer flex items-center justify-center gap-1.5 ${
+                        bulkViewMode === "step"
+                          ? "bg-white text-slate-900 shadow-sm border border-slate-250"
+                          : "text-slate-500 hover:text-slate-800"
+                      }`}
+                    >
+                      <span>⚡ Mode Asisten Kirim Cepat</span>
+                    </button>
                   </div>
 
-                  {/* Actions Bar & Settings */}
-                  <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-slate-50 p-4 rounded-xl border border-slate-150">
-                    <div>
-                      <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Total Karyawan Aktif</span>
-                      <div className="text-xl font-bold text-slate-900">
-                        {workers.filter(w => w.isActive).length} Orang
-                      </div>
-                    </div>
+                  {bulkViewMode === "step" ? (
+                    (() => {
+                      const activeWorkers = workers.filter(w => w.isActive);
+                      if (activeWorkers.length === 0) {
+                        return (
+                          <div className="text-center py-8 text-slate-500 text-sm">
+                            Tidak ada karyawan aktif yang perlu dikirimi pesan.
+                          </div>
+                        );
+                      }
+                      
+                      const currentWorker = activeWorkers[currentStepIndex];
+                      const link = `${window.location.origin}/?id=${currentWorker.id}`;
+                      const customMsg = `Halo *${currentWorker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                      const encodedMsg = encodeURIComponent(customMsg);
+                      
+                      let phoneClean = currentWorker.phoneNumber?.replace(/[^0-9]/g, "") || "";
+                      if (phoneClean.startsWith("0")) {
+                        phoneClean = "62" + phoneClean.slice(1);
+                      }
+                      
+                      const waUrl = waMethod === "desktop"
+                        ? `whatsapp://send?phone=${phoneClean}&text=${encodedMsg}`
+                        : `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
+                        
+                      const isSent = !!bulkSentStatus[currentWorker.id];
+                      
+                      const handleSendAndNext = () => {
+                        // Mark as sent
+                        setBulkSentStatus(prev => ({ ...prev, [currentWorker.id]: true }));
+                        // Open WhatsApp
+                        if (currentWorker.phoneNumber) {
+                          window.open(waUrl, waMethod === "desktop" ? "_self" : "_blank");
+                        }
+                        // Advance to next after a brief delay
+                        if (currentStepIndex < activeWorkers.length - 1) {
+                          setTimeout(() => {
+                            setCurrentStepIndex(prev => prev + 1);
+                          }, 350);
+                        }
+                      };
+                      
+                      const handleCopyAndNext = () => {
+                        navigator.clipboard.writeText(customMsg);
+                        setCopiedWorkerMsgId(currentWorker.id);
+                        setBulkSentStatus(prev => ({ ...prev, [currentWorker.id]: true }));
+                        setTimeout(() => {
+                          setCopiedWorkerMsgId(null);
+                          if (currentStepIndex < activeWorkers.length - 1) {
+                            setCurrentStepIndex(prev => prev + 1);
+                          }
+                        }, 1200);
+                      };
 
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      {/* Segmented Control in Modal */}
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[10px] text-slate-400 font-bold uppercase">Metode Kirim WA:</span>
-                        <div className="flex items-center gap-1 bg-slate-200/80 rounded-xl p-1 border border-slate-300/40">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setWaMethod("desktop");
-                              localStorage.setItem("wa_method", "desktop");
-                            }}
-                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                              waMethod === "desktop"
-                                ? "bg-white text-slate-900 shadow-sm border border-slate-200"
-                                : "text-slate-500 hover:text-slate-800"
-                            }`}
-                          >
-                            Aplikasi PC
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setWaMethod("web");
-                              localStorage.setItem("wa_method", "web");
-                            }}
-                            className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
-                              waMethod === "web"
-                                ? "bg-white text-slate-900 shadow-sm border border-slate-200"
-                                : "text-slate-500 hover:text-slate-800"
-                            }`}
-                          >
-                            WA Web
-                          </button>
+                      return (
+                        <div className="space-y-6">
+                          {/* Progress bar */}
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="font-semibold text-slate-600">Progres Pengiriman:</span>
+                              <span className="font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full font-mono">
+                                Karyawan {currentStepIndex + 1} dari {activeWorkers.length}
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden border border-slate-200">
+                              <div 
+                                className="bg-indigo-600 h-full transition-all duration-300"
+                                style={{ width: `${((currentStepIndex + 1) / activeWorkers.length) * 100}%` }}
+                              ></div>
+                            </div>
+                          </div>
+
+                          {/* Worker Detail Card */}
+                          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 md:p-6 space-y-4">
+                            <div className="flex justify-between items-start">
+                              <div className="space-y-1">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Sedang Diproses:</span>
+                                <h4 className="text-base font-bold text-slate-950 font-display">{currentWorker.name}</h4>
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <span className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md font-medium">
+                                    {currentWorker.role}
+                                  </span>
+                                  {currentWorker.phoneNumber ? (
+                                    <span className="text-[11px] font-mono text-slate-600 flex items-center gap-1">
+                                      <Phone className="w-3.5 h-3.5 text-slate-400" />
+                                      {currentWorker.phoneNumber}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded italic font-medium">No HP Kosong</span>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div>
+                                {isSent ? (
+                                  <span className="text-[10px] font-bold text-emerald-750 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    Sudah Dikirim
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-slate-500 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-full">
+                                    Belum Dikirim
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Message Preview */}
+                            <div className="space-y-1.5">
+                              <span className="text-[10px] text-slate-400 font-bold uppercase block">Pratinjau Pesan WA:</span>
+                              <div className="bg-white border border-slate-250 rounded-xl p-3 text-[11px] font-mono text-slate-700 whitespace-pre-wrap leading-relaxed max-h-36 overflow-y-auto">
+                                {customMsg}
+                              </div>
+                            </div>
+
+                            {/* Method Switcher within Assist Card */}
+                            <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
+                              <span className="font-semibold text-slate-500">Kirim Lewat:</span>
+                              <div className="flex bg-slate-200/80 rounded-lg p-0.5 border border-slate-300/40">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setWaMethod("desktop");
+                                    localStorage.setItem("wa_method", "desktop");
+                                  }}
+                                  className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                    waMethod === "desktop"
+                                      ? "bg-white text-slate-900 shadow-xs"
+                                      : "text-slate-500 hover:text-slate-850"
+                                  }`}
+                                >
+                                  Aplikasi PC
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setWaMethod("web");
+                                    localStorage.setItem("wa_method", "web");
+                                  }}
+                                  className={`px-2.5 py-0.5 text-[11px] font-bold rounded-md transition-all cursor-pointer ${
+                                    waMethod === "web"
+                                      ? "bg-white text-slate-900 shadow-xs"
+                                      : "text-slate-500 hover:text-slate-850"
+                                  }`}
+                                >
+                                  WA Web
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Main Step Buttons */}
+                          <div className="flex flex-col sm:flex-row gap-3">
+                            <button
+                              type="button"
+                              onClick={handleCopyAndNext}
+                              className="flex-1 py-3 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-2 border border-slate-250 shadow-xs"
+                            >
+                              {copiedWorkerMsgId === currentWorker.id ? (
+                                <Check className="w-4 h-4 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-4 h-4 text-slate-500" />
+                              )}
+                              <span>
+                                {copiedWorkerMsgId === currentWorker.id ? "Pesan Berhasil Tersalin!" : "Salin Pesan & Lanjut"}
+                              </span>
+                            </button>
+
+                            {currentWorker.phoneNumber ? (
+                              <button
+                                type="button"
+                                onClick={handleSendAndNext}
+                                className="flex-1 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-emerald-100"
+                              >
+                                <MessageSquare className="w-4 h-4" />
+                                <span>Kirim WA & Lanjut</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled
+                                className="flex-1 py-3 px-4 bg-slate-100 text-slate-400 font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-slate-200 cursor-not-allowed"
+                              >
+                                <MessageSquare className="w-4 h-4" />
+                                <span>Kirim WA (No HP Kosong)</span>
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Step Navigation Controls */}
+                          <div className="flex justify-between items-center pt-3 border-t border-slate-150 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (currentStepIndex > 0) {
+                                  setCurrentStepIndex(prev => prev - 1);
+                                }
+                              }}
+                              disabled={currentStepIndex === 0}
+                              className={`py-1.5 px-3 rounded-lg border font-bold transition cursor-pointer ${
+                                currentStepIndex === 0
+                                  ? "text-slate-300 border-slate-100 cursor-not-allowed"
+                                  : "text-slate-600 border-slate-250 hover:bg-slate-50"
+                              }`}
+                            >
+                              Sebelumnya
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBulkSentStatus({});
+                                setCurrentStepIndex(0);
+                                alert("Status progres berhasil di-reset!");
+                              }}
+                              className="text-slate-400 hover:text-slate-600 font-semibold cursor-pointer text-[11px]"
+                            >
+                              Reset Progres
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (currentStepIndex < activeWorkers.length - 1) {
+                                  setCurrentStepIndex(prev => prev + 1);
+                                }
+                              }}
+                              disabled={currentStepIndex === activeWorkers.length - 1}
+                              className={`py-1.5 px-3 rounded-lg border font-bold transition cursor-pointer ${
+                                currentStepIndex === activeWorkers.length - 1
+                                  ? "text-slate-300 border-slate-100 cursor-not-allowed"
+                                  : "text-slate-600 border-slate-250 hover:bg-slate-50"
+                              }`}
+                            >
+                              Lewati / Selanjutnya
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      {/* Info Warning */}
+                      <div className="p-4 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-800 space-y-2">
+                        <div className="font-bold flex items-center gap-1.5 text-amber-900">
+                          <AlertCircle className="w-4.5 h-4.5 text-amber-600" />
+                          <span>Sistem Keamanan PIN Aktif & Pilihan Metode Pengiriman</span>
+                        </div>
+                        <p className="leading-relaxed">
+                          Link absensi di bawah ini membutuhkan PIN Harian <strong className="font-mono text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded">{attendancePin}</strong> agar pekerja dapat melakukan check-in.
+                        </p>
+                        <p className="leading-relaxed bg-white/60 p-2.5 rounded-lg border border-amber-100 text-[11px] text-slate-700">
+                          💡 <strong>Tips Hemat Waktu:</strong> Pilih <strong>Aplikasi PC</strong> di bawah ini agar saat tombol diklik, browser tidak membuka tab baru melainkan langsung meluncurkan aplikasi WhatsApp Desktop Anda. Atau, gunakan tombol <strong>Salin Pesan</strong> untuk menyalin teks penuh beserta tautannya dan langsung menempelkannya (paste) ke WhatsApp tanpa membuka tab baru sama sekali!
+                        </p>
+                      </div>
+
+                      {/* Actions Bar & Settings */}
+                      <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center bg-slate-50 p-4 rounded-xl border border-slate-150">
+                        <div>
+                          <span className="text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Total Karyawan Aktif</span>
+                          <div className="text-xl font-bold text-slate-900">
+                            {workers.filter(w => w.isActive).length} Orang
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          {/* Segmented Control in Modal */}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Metode Kirim WA:</span>
+                            <div className="flex items-center gap-1 bg-slate-200/80 rounded-xl p-1 border border-slate-300/40">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWaMethod("desktop");
+                                  localStorage.setItem("wa_method", "desktop");
+                                }}
+                                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                  waMethod === "desktop"
+                                    ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                                    : "text-slate-500 hover:text-slate-800"
+                                }`}
+                              >
+                                Aplikasi PC
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setWaMethod("web");
+                                  localStorage.setItem("wa_method", "web");
+                                }}
+                                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                  waMethod === "web"
+                                    ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                                    : "text-slate-500 hover:text-slate-800"
+                                }`}
+                              >
+                                WA Web
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[10px] text-transparent select-none font-bold block">Action:</span>
+                            <button
+                              onClick={() => {
+                                const activeWorkers = workers.filter(w => w.isActive);
+                                const compiled = activeWorkers.map(w => {
+                                  const link = `${window.location.origin}/?id=${w.id}`;
+                                  return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                                }).join("\n\n-------------------------\n\n");
+                                navigator.clipboard.writeText(compiled);
+                                alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
+                              }}
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-100 cursor-pointer"
+                            >
+                              <FileCheck className="w-4 h-4" />
+                              <span>Salin Semua Format</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[10px] text-transparent select-none font-bold block">Action:</span>
-                        <button
-                          onClick={() => {
-                            const activeWorkers = workers.filter(w => w.isActive);
-                            const compiled = activeWorkers.map(w => {
-                              const link = `${window.location.origin}/?id=${w.id}`;
-                              return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
-                            }).join("\n\n-------------------------\n\n");
-                            navigator.clipboard.writeText(compiled);
-                            alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
-                          }}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-100 cursor-pointer"
-                        >
-                          <FileCheck className="w-4 h-4" />
-                          <span>Salin Semua Format</span>
-                        </button>
+                      {/* List of Workers */}
+                      <div className="space-y-3">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Daftar Pengiriman</h4>
+                        <div className="border border-slate-150 rounded-xl overflow-hidden divide-y divide-slate-100">
+                          {workers.filter(w => w.isActive).map((w) => {
+                            const link = `${window.location.origin}/?id=${w.id}`;
+                            const customMsg = `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                            const encodedMsg = encodeURIComponent(customMsg);
+                            
+                            // Sanitize phone number (remove non-digits and replace leading '0' with '62' if necessary)
+                            let phoneClean = w.phoneNumber?.replace(/[^0-9]/g, "") || "";
+                            if (phoneClean.startsWith("0")) {
+                              phoneClean = "62" + phoneClean.slice(1);
+                            }
+                            
+                            const waUrl = waMethod === "desktop"
+                              ? `whatsapp://send?phone=${phoneClean}&text=${encodedMsg}`
+                              : `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
+                            const isSent = !!bulkSentStatus[w.id];
+
+                            return (
+                              <div key={w.id} className="p-3.5 bg-white hover:bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-xs text-slate-900">{w.name}</span>
+                                    <span className="text-[10px] text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded font-mono font-medium">{w.role}</span>
+                                  </div>
+                                  <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                                    <Phone className="w-3 h-3 text-slate-400" />
+                                    <span>{w.phoneNumber || "No HP Kosong"}</span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                                  {isSent ? (
+                                    <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
+                                      Sudah Dikirim
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
+                                      Belum Dikirim
+                                    </span>
+                                  )}
+
+                                  {/* Copy custom message */}
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(customMsg);
+                                      setCopiedWorkerMsgId(w.id);
+                                      setTimeout(() => setCopiedWorkerMsgId(null), 2000);
+                                      setBulkSentStatus(prev => ({ ...prev, [w.id]: true }));
+                                    }}
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer border border-slate-200"
+                                    title="Salin pesan beserta link ke clipboard"
+                                  >
+                                    {copiedWorkerMsgId === w.id ? (
+                                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3.5 h-3.5 text-slate-500" />
+                                    )}
+                                    <span>{copiedWorkerMsgId === w.id ? "Pesan Tersalin!" : "Salin Pesan"}</span>
+                                  </button>
+
+                                  {w.phoneNumber ? (
+                                    <a
+                                      href={waUrl}
+                                      target={waMethod === "desktop" ? "_self" : "_blank"}
+                                      rel="noreferrer"
+                                      onClick={() => {
+                                        setBulkSentStatus(prev => ({ ...prev, [w.id]: true }));
+                                      }}
+                                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                                    >
+                                      <MessageSquare className="w-3.5 h-3.5" />
+                                      <span>{waMethod === "desktop" ? "Kirim WA (App)" : "Kirim WA (Web)"}</span>
+                                    </a>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400 italic">No HP Kosong</span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  </div>
-
-                  {/* List of Workers */}
-                  <div className="space-y-3">
-                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Daftar Pengiriman</h4>
-                    <div className="border border-slate-150 rounded-xl overflow-hidden divide-y divide-slate-100">
-                      {workers.filter(w => w.isActive).map((w) => {
-                        const link = `${window.location.origin}/?id=${w.id}`;
-                        const customMsg = `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
-                        const encodedMsg = encodeURIComponent(customMsg);
-                        
-                        // Sanitize phone number (remove non-digits and replace leading '0' with '62' if necessary)
-                        let phoneClean = w.phoneNumber?.replace(/[^0-9]/g, "") || "";
-                        if (phoneClean.startsWith("0")) {
-                          phoneClean = "62" + phoneClean.slice(1);
-                        }
-                        
-                        const waUrl = waMethod === "desktop"
-                          ? `whatsapp://send?phone=${phoneClean}&text=${encodedMsg}`
-                          : `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
-                        const isSent = !!bulkSentStatus[w.id];
-
-                        return (
-                          <div key={w.id} className="p-3.5 bg-white hover:bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                            <div className="space-y-0.5">
-                              <div className="flex items-center gap-2">
-                                <span className="font-bold text-xs text-slate-900">{w.name}</span>
-                                <span className="text-[10px] text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.2 rounded font-mono font-medium">{w.role}</span>
-                              </div>
-                              <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
-                                <Phone className="w-3 h-3 text-slate-400" />
-                                <span>{w.phoneNumber || "No HP Kosong"}</span>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                              {isSent ? (
-                                <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-1 rounded-lg">
-                                  Sudah Dikirim
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
-                                  Belum Dikirim
-                                </span>
-                              )}
-
-                              {/* Copy custom message */}
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(customMsg);
-                                  setCopiedWorkerMsgId(w.id);
-                                  setTimeout(() => setCopiedWorkerMsgId(null), 2000);
-                                  setBulkSentStatus(prev => ({ ...prev, [w.id]: true }));
-                                }}
-                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer border border-slate-200"
-                                title="Salin pesan beserta link ke clipboard"
-                              >
-                                {copiedWorkerMsgId === w.id ? (
-                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                ) : (
-                                  <Copy className="w-3.5 h-3.5 text-slate-500" />
-                                )}
-                                <span>{copiedWorkerMsgId === w.id ? "Pesan Tersalin!" : "Salin Pesan"}</span>
-                              </button>
-
-                              {w.phoneNumber ? (
-                                <a
-                                  href={waUrl}
-                                  target={waMethod === "desktop" ? "_self" : "_blank"}
-                                  rel="noreferrer"
-                                  onClick={() => {
-                                    setBulkSentStatus(prev => ({ ...prev, [w.id]: true }));
-                                  }}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-3 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
-                                >
-                                  <MessageSquare className="w-3.5 h-3.5" />
-                                  <span>{waMethod === "desktop" ? "Kirim WA (App)" : "Kirim WA (Web)"}</span>
-                                </a>
-                              ) : (
-                                <span className="text-[11px] text-slate-400 italic">No HP Kosong</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </div>
               </motion.div>
             </div>
