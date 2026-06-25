@@ -8,6 +8,10 @@ export interface Worker {
   name: string;
   role: string;
   isActive: boolean;
+  bankName?: string;
+  bankAccount?: string;
+  phoneNumber?: string;
+  nik?: string;
 }
 
 export interface DailyAttendance {
