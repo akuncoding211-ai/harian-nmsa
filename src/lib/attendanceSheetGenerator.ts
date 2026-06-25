@@ -1,24 +1,39 @@
 import * as XLSX from "xlsx";
 import { AttendanceRecord, Worker, WeeklyReport } from "../types";
 
-export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
-  const getDates = (): string[] => {
-    const dates: string[] = [];
-    const current = new Date(report.weekStartDate);
-    for (let i = 0; i < 5; i++) {
-      dates.push(current.toISOString().split("T")[0]);
-      current.setDate(current.getDate() + 1);
-    }
-    return dates;
-  };
+function formatLocalYYYYMMDD(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
-  const dates = getDates();
+function getSafeDates(startDateStr: string): string[] {
+  const dates: string[] = [];
+  const parts = startDateStr.split("-");
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  
+  const current = new Date(year, month, day);
+  for (let i = 0; i < 5; i++) {
+    dates.push(formatLocalYYYYMMDD(current));
+    current.setDate(current.getDate() + 1);
+  }
+  return dates;
+}
+
+export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[]) {
+  const dates = getSafeDates(report.weekStartDate);
   const dayNames = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat"];
   const workerMap = new Map(workers.map((w) => [w.id, w]));
 
   const totalCost = report.records.reduce((sum, r) => {
-    const presentDays = Object.values(r.attendance).filter(status => status).length;
-    return sum + (presentDays * r.dailyAllowance);
+    let presentDaysForThisWeek = 0;
+    dates.forEach((d) => {
+      if (r.attendance[d]) presentDaysForThisWeek++;
+    });
+    return sum + (presentDaysForThisWeek * r.dailyAllowance);
   }, 0);
 
   const tableRows = report.records.map((record, index) => {
@@ -290,18 +305,7 @@ export function generateAttendanceExcelBlob(
   records: AttendanceRecord[],
   workers: Worker[]
 ): Blob {
-  // Extract dates in range (Mon-Fri)
-  const getDates = (): string[] => {
-    const dates: string[] = [];
-    const current = new Date(weekStartDate);
-    for (let i = 0; i < 5; i++) {
-      dates.push(current.toISOString().split("T")[0]);
-      current.setDate(current.getDate() + 1);
-    }
-    return dates;
-  };
-
-  const dates = getDates();
+  const dates = getSafeDates(weekStartDate);
   const dayNames = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat"];
 
   // Helper mapping

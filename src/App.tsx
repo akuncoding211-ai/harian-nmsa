@@ -34,6 +34,14 @@ import { triggerAttendanceExcelDownload, printWeeklyReportPDF } from "./lib/atte
 import { getOrCreateFolder, uploadFileToDrive, exportAttendanceToGoogleSheet } from "./lib/googleWorkspace";
 import { initAuth, googleSignIn, googleSignOut } from "./lib/firebase";
 
+// Utility to format Date as local YYYY-MM-DD
+function formatLocalYYYYMMDD(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 // Utility to get current week's Monday and Friday dates
 function getWeekRange(dateInput: Date) {
   const d = new Date(dateInput);
@@ -48,8 +56,8 @@ function getWeekRange(dateInput: Date) {
   friday.setHours(23, 59, 59, 999);
 
   return {
-    monday: monday.toISOString().split("T")[0],
-    friday: friday.toISOString().split("T")[0],
+    monday: formatLocalYYYYMMDD(monday),
+    friday: formatLocalYYYYMMDD(friday),
   };
 }
 
@@ -97,9 +105,13 @@ export default function App() {
   const { monday: weekStart, friday: weekEnd } = getWeekRange(selectedDate);
   const getDatesOfWeek = (): string[] => {
     const dates: string[] = [];
-    const current = new Date(weekStart);
+    const parts = weekStart.split("-");
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const current = new Date(year, month, day);
     for (let i = 0; i < 5; i++) {
-      dates.push(current.toISOString().split("T")[0]);
+      dates.push(formatLocalYYYYMMDD(current));
       current.setDate(current.getDate() + 1);
     }
     return dates;
@@ -962,18 +974,62 @@ export default function App() {
                   </span>
                   
                   {currentWeekReportLog ? (
-                    <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-800">
-                      <CheckCircle className="w-4 h-4 text-emerald-600" />
-                      <span>Minggu Ini Sudah Dilaporkan (Hari Jumat)</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const liveRecords = attendanceRecords.filter(
+                            (r) => r.attendance[weekStart] !== undefined
+                          );
+                          const liveReport: WeeklyReport = {
+                            id: "LIVE",
+                            weekStartDate: weekStart,
+                            weekEndDate: weekEnd,
+                            records: liveRecords,
+                            isSubmitted: false,
+                            submittedAt: new Date().toISOString(),
+                          };
+                          printWeeklyReportPDF(liveReport, workers);
+                        }}
+                        className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-300 font-bold text-xs text-slate-700 px-4 py-2 rounded-lg shadow-sm hover:shadow transition duration-150 cursor-pointer"
+                      >
+                        <FileCheck className="w-4 h-4 text-indigo-600" />
+                        <span>Cetak PDF Aktif</span>
+                      </button>
+                      <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-semibold text-emerald-800">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>Minggu Ini Sudah Dilaporkan (Hari Jumat)</span>
+                      </div>
                     </div>
                   ) : (
-                    <button
-                      onClick={handleSubmitFridayReport}
-                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 font-bold text-xs text-white px-4 py-2 border border-transparent rounded-lg shadow-sm hover:shadow transition duration-150 cursor-pointer"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Kirim Laporan Uang Makan Jumat</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          const liveRecords = attendanceRecords.filter(
+                            (r) => r.attendance[weekStart] !== undefined
+                          );
+                          const liveReport: WeeklyReport = {
+                            id: "LIVE",
+                            weekStartDate: weekStart,
+                            weekEndDate: weekEnd,
+                            records: liveRecords,
+                            isSubmitted: false,
+                            submittedAt: new Date().toISOString(),
+                          };
+                          printWeeklyReportPDF(liveReport, workers);
+                        }}
+                        className="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-300 font-bold text-xs text-slate-700 px-4 py-2 rounded-lg shadow-sm hover:shadow transition duration-150 cursor-pointer"
+                      >
+                        <FileCheck className="w-4 h-4 text-indigo-600" />
+                        <span>Cetak PDF Aktif</span>
+                      </button>
+                      <button
+                        onClick={handleSubmitFridayReport}
+                        className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 font-bold text-xs text-white px-4 py-2 border border-transparent rounded-lg shadow-sm hover:shadow transition duration-150 cursor-pointer"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Kirim Laporan Uang Makan Jumat</span>
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
