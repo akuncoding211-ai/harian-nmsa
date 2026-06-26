@@ -46,6 +46,9 @@ function readState() {
       if (!parsed.signatures) {
         parsed.signatures = {};
       }
+      if (!parsed.pettyCashHolders) {
+        parsed.pettyCashHolders = ["Suryo Pranoto"];
+      }
       return parsed;
     }
   } catch (error) {
@@ -57,7 +60,8 @@ function readState() {
     weeklyReports: [],
     pettyCashReports: [],
     attendancePin: autoPin,
-    signatures: {}
+    signatures: {},
+    pettyCashHolders: ["Suryo Pranoto"]
   };
 }
 
@@ -96,7 +100,7 @@ app.get("/api/shared-state", (req, res) => {
 // POST Shared State (Save data from Admin dashboard)
 app.post("/api/shared-state", (req, res) => {
   try {
-    const { workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures } = req.body;
+    const { workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures, pettyCashHolders } = req.body;
     const currentState = readState();
 
     const updatedState = {
@@ -106,6 +110,7 @@ app.post("/api/shared-state", (req, res) => {
       pettyCashReports: pettyCashReports !== undefined ? pettyCashReports : currentState.pettyCashReports,
       attendancePin: attendancePin !== undefined ? attendancePin : currentState.attendancePin,
       signatures: signatures !== undefined ? signatures : currentState.signatures,
+      pettyCashHolders: pettyCashHolders !== undefined ? pettyCashHolders : currentState.pettyCashHolders,
     };
 
     writeState(updatedState);

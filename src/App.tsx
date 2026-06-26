@@ -127,7 +127,7 @@ export default function App() {
   const [pettyCashHolderFilter, setPettyCashHolderFilter] = useState<string>("ALL");
 
   const [pettyCashHolders, setPettyCashHolders] = useState<string[]>(() => {
-    const saved = localStorage.getItem("petty_cash_holders");
+    const saved = localStorage.getItem("petty_cash_holders_v2");
     return saved ? JSON.parse(saved) : ["Suryo Pranoto"];
   });
 
@@ -322,7 +322,7 @@ export default function App() {
   }, [pettyCashReports]);
 
   useEffect(() => {
-    localStorage.setItem("petty_cash_holders", JSON.stringify(pettyCashHolders));
+    localStorage.setItem("petty_cash_holders_v2", JSON.stringify(pettyCashHolders));
   }, [pettyCashHolders]);
 
   useEffect(() => {
@@ -355,7 +355,8 @@ export default function App() {
     weeklyRepList = weeklyReports,
     pettyRepList = pettyCashReports,
     pinVal = attendancePin,
-    signaturesList = signatures
+    signaturesList = signatures,
+    holdersList = pettyCashHolders
   ) => {
     try {
       setServerSyncing(true);
@@ -371,6 +372,7 @@ export default function App() {
           pettyCashReports: pettyRepList,
           attendancePin: pinVal,
           signatures: signaturesList,
+          pettyCashHolders: holdersList,
         }),
       });
       if (res.ok) {
@@ -398,6 +400,7 @@ export default function App() {
             if (data.pettyCashReports) setPettyCashReports(data.pettyCashReports);
             if (data.attendancePin) setAttendancePin(data.attendancePin);
             if (data.signatures) setSignatures(data.signatures);
+            if (data.pettyCashHolders) setPettyCashHolders(data.pettyCashHolders);
             setLastSynced(new Date().toLocaleTimeString("id-ID"));
           } else {
             // Server has no data (first startup), sync our initial local storage data
@@ -411,6 +414,7 @@ export default function App() {
                 pettyCashReports,
                 attendancePin,
                 signatures,
+                pettyCashHolders,
               }),
             });
             setLastSynced(new Date().toLocaleTimeString("id-ID"));
@@ -430,10 +434,10 @@ export default function App() {
   useEffect(() => {
     if (!initialFetchDone) return;
     const timer = setTimeout(() => {
-      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures);
+      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures, pettyCashHolders);
     }, 1200); // 1.2s debounce
     return () => clearTimeout(timer);
-  }, [workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, initialFetchDone]);
+  }, [workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, pettyCashHolders, initialFetchDone]);
 
   // 3. Worker self-attendance handlers
   useEffect(() => {
@@ -1766,9 +1770,9 @@ export default function App() {
   // All registered workers as potential holders
   const registeredWorkerNames = workers.map(w => w.name);
 
-  // Combined sorted unique list of potential holders
+  // Combined sorted unique list of potential holders (strictly manual petty cash holders)
   const uniqueHolders = Array.from(
-    new Set([...existingHolders, ...pettyCashHolders, ...registeredWorkerNames])
+    new Set(pettyCashHolders)
   ).sort();
 
   // Filter reports based on chosen filter
@@ -2771,11 +2775,11 @@ export default function App() {
                             className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 mt-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                           >
                             <option value="">-- Pilih Pemegang Kas --</option>
-                            {workers.map((w) => (
-                              <option key={w.id} value={w.name}>{w.name} ({w.role})</option>
+                            {pettyCashHolders.map((holder) => (
+                              <option key={holder} value={holder}>👤 {holder}</option>
                             ))}
-                            {activeWorkspaceReport.summary.workerName && !workers.some(w => w.name === activeWorkspaceReport.summary.workerName) && (
-                              <option value={activeWorkspaceReport.summary.workerName}>👤 {activeWorkspaceReport.summary.workerName} (Ekstraksi AI)</option>
+                            {activeWorkspaceReport.summary.workerName && !pettyCashHolders.includes(activeWorkspaceReport.summary.workerName) && (
+                              <option value={activeWorkspaceReport.summary.workerName}>👤 {activeWorkspaceReport.summary.workerName} (Ekstraksi/Lainnya)</option>
                             )}
                           </select>
                         </div>

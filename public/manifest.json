@@ -1,6 +1,6 @@
 {
-  "name": "KarsaField Pro",
-  "short_name": "KarsaField",
+  "name": "Absensi Harian dan uang makan",
+  "short_name": "Absen & Uang Makan",
   "description": "Pencatatan absen uang makan harian mingguan pekerja serta pembaca & konverter otomatis laporan pdf petty cash pekerja lapangan.",
   "start_url": "/",
   "display": "standalone",
