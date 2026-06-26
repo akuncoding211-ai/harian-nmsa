@@ -23,7 +23,7 @@ export function SignaturePad({ onSignatureChange, workerName }: SignaturePadProp
 
     // Set canvas dimensions (logical resolution)
     canvas.width = 400;
-    canvas.height = 150;
+    canvas.height = 200;
 
     // Line styles for smooth, realistic ink
     ctx.strokeStyle = "#1e3a8a"; // Navy blue ink
@@ -214,7 +214,7 @@ export function SignaturePad({ onSignatureChange, workerName }: SignaturePadProp
           onTouchStart={startDrawing}
           onTouchMove={draw}
           onTouchEnd={stopDrawing}
-          className="w-full h-[120px] bg-white rounded-lg border border-slate-800 cursor-crosshair touch-none"
+          className="w-full h-[200px] bg-white rounded-lg border border-slate-800 cursor-crosshair touch-none"
         />
 
         {/* Clear Button (only shown/active in draw mode or if text entered) */}

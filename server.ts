@@ -219,6 +219,46 @@ app.post("/api/self-attend", (req, res) => {
   }
 });
 
+// POST Update Worker Profile (by workers themselves)
+app.post("/api/update-worker-profile", (req, res) => {
+  try {
+    const { workerId, bankName, bankAccount, phoneNumber, nik, photoUrl, name, role } = req.body;
+    if (!workerId) {
+      return res.status(400).json({ error: "ID pekerja wajib diisi." });
+    }
+
+    const state = readState();
+    const workers = state.workers || [];
+
+    const workerIndex = workers.findIndex((w: any) => w.id === workerId);
+    if (workerIndex === -1) {
+      return res.status(404).json({ error: "Pekerja tidak ditemukan." });
+    }
+
+    const worker = workers[workerIndex];
+    if (bankName !== undefined) worker.bankName = bankName;
+    if (bankAccount !== undefined) worker.bankAccount = bankAccount;
+    if (phoneNumber !== undefined) worker.phoneNumber = phoneNumber;
+    if (nik !== undefined) worker.nik = nik;
+    if (photoUrl !== undefined) worker.photoUrl = photoUrl;
+    if (name !== undefined && name.trim() !== "") worker.name = name;
+    if (role !== undefined && role.trim() !== "") worker.role = role;
+
+    writeState({
+      ...state,
+      workers
+    });
+
+    res.json({ 
+      success: true, 
+      message: "Profil Anda berhasil diperbarui!", 
+      worker: worker
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Gagal memperbarui profil." });
+  }
+});
+
 // Endpoint to Parse Petty Cash PDF / Image
 app.post("/api/parse-petty-cash", async (req, res) => {
   try {

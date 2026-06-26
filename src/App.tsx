@@ -31,7 +31,10 @@ import {
   Copy,
   Check,
   MapPin,
-  AlertTriangle
+  AlertTriangle,
+  User,
+  Camera,
+  CreditCard
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
@@ -122,6 +125,24 @@ export default function App() {
   });
 
   const [pettyCashHolderFilter, setPettyCashHolderFilter] = useState<string>("ALL");
+
+  const [pettyCashHolders, setPettyCashHolders] = useState<string[]>(() => {
+    const saved = localStorage.getItem("petty_cash_holders");
+    return saved ? JSON.parse(saved) : ["Suryo Pranoto"];
+  });
+
+  const [selectedUploadHolder, setSelectedUploadHolder] = useState<string>("Suryo Pranoto");
+
+  // Self-profile editing states
+  const [editBankName, setEditBankName] = useState<string>("");
+  const [editBankAccount, setEditBankAccount] = useState<string>("");
+  const [editPhoneNumber, setEditPhoneNumber] = useState<string>("");
+  const [editNik, setEditNik] = useState<string>("");
+  const [editPhotoUrl, setEditPhotoUrl] = useState<string>("");
+  const [editName, setEditName] = useState<string>("");
+  const [editRole, setEditRole] = useState<string>("");
+  const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [profileSaveMsg, setProfileSaveMsg] = useState<string>("");
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState<"absen" | "pettycash" | "workers">("absen");
@@ -299,6 +320,28 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("petty_cash_reports", JSON.stringify(pettyCashReports));
   }, [pettyCashReports]);
+
+  useEffect(() => {
+    localStorage.setItem("petty_cash_holders", JSON.stringify(pettyCashHolders));
+  }, [pettyCashHolders]);
+
+  useEffect(() => {
+    if (pettyCashHolders.length > 0 && !pettyCashHolders.includes(selectedUploadHolder)) {
+      setSelectedUploadHolder(pettyCashHolders[0]);
+    }
+  }, [pettyCashHolders, selectedUploadHolder]);
+
+  useEffect(() => {
+    if (selfWorker) {
+      setEditBankName(selfWorker.bankName || "");
+      setEditBankAccount(selfWorker.bankAccount || "");
+      setEditPhoneNumber(selfWorker.phoneNumber || "");
+      setEditNik(selfWorker.nik || "");
+      setEditPhotoUrl(selfWorker.photoUrl || "");
+      setEditName(selfWorker.name || "");
+      setEditRole(selfWorker.role || "");
+    }
+  }, [selfWorker]);
 
   useEffect(() => {
     localStorage.setItem("global_allowance", globalAllowance.toString());
@@ -780,8 +823,14 @@ export default function App() {
         id: newReportId,
         fileName: fileToUpload.name,
         uploadedAt: new Date().toISOString(),
-        summary: rawResult.summary,
-        transactions: rawResult.transactions,
+        summary: {
+          ...rawResult.summary,
+          workerName: selectedUploadHolder
+        },
+        transactions: (rawResult.transactions || []).map((t: any) => ({
+          ...t,
+          worker: selectedUploadHolder
+        })),
       };
 
       setPettyCashReports([processedReport, ...pettyCashReports]);
@@ -815,18 +864,18 @@ export default function App() {
             totalIncome: 12000000,
             totalExpense: 10550000,
             remainingBalance: 1450000,
-            workerName: "Bambang Wijaya",
+            workerName: selectedUploadHolder,
             reportMonth: "Juni 2026",
           },
           transactions: [
-            { date: "2026-06-02", description: "Terima Drop Kas Keluar Mandor Bambang", category: "Penerimaan Kas", amount: 12000000, worker: "Bambang Wijaya", type: TransactionType.INCOME },
-            { date: "2026-06-03", description: "Beli Seng Talang & Paku Kayu", category: "Material", amount: 1550000, worker: "Bambang Wijaya", type: TransactionType.EXPENSE },
-            { date: "2026-06-05", description: "Sewa Molen Pengaduk Semen (3 hari)", category: "Tools", amount: 750000, worker: "Bambang Wijaya", type: TransactionType.EXPENSE },
-            { date: "2026-06-08", description: "Makan Siang Tim Lapangan Sipil", category: "Konsumsi", amount: 480000, worker: "Bambang Wijaya", type: TransactionType.EXPENSE },
-            { date: "2026-06-11", description: "Bantuan Semen Gresik 15 Sak", category: "Material", amount: 1125000, worker: "Bambang Wijaya", type: TransactionType.EXPENSE },
-            { date: "2026-06-15", description: "Ongkos Transport Dump Truck Pasir", category: "Transport", amount: 2400000, worker: "Bambang Wijaya", type: TransactionType.EXPENSE },
-            { date: "2026-06-18", description: "Upah Harian Tukang Listrik Lembur", category: "Lain-lain", amount: 3500000, worker: "Bambang Wijaya", type: TransactionType.EXPENSE },
-            { date: "2026-06-20", description: "Uang Koordinasi Lingkungan RT Proyek", category: "Keamanan / Koordinasi", amount: 745000, worker: "Bambang Wijaya", type: TransactionType.EXPENSE }
+            { date: "2026-06-02", description: "Terima Drop Kas Keluar Mandor Bambang", category: "Penerimaan Kas", amount: 12000000, worker: selectedUploadHolder, type: TransactionType.INCOME },
+            { date: "2026-06-03", description: "Beli Seng Talang & Paku Kayu", category: "Material", amount: 1550000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-05", description: "Sewa Molen Pengaduk Semen (3 hari)", category: "Tools", amount: 750000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-08", description: "Makan Siang Tim Lapangan Sipil", category: "Konsumsi", amount: 480000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-11", description: "Bantuan Semen Gresik 15 Sak", category: "Material", amount: 1125000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-15", description: "Ongkos Transport Dump Truck Pasir", category: "Transport", amount: 2400000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-18", description: "Upah Harian Tukang Listrik Lembur", category: "Lain-lain", amount: 3500000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-20", description: "Uang Koordinasi Lingkungan RT Proyek", category: "Keamanan / Koordinasi", amount: 745000, worker: selectedUploadHolder, type: TransactionType.EXPENSE }
           ]
         };
       } else {
@@ -838,14 +887,14 @@ export default function App() {
             totalIncome: 5000000,
             totalExpense: 4850000,
             remainingBalance: 150000,
-            workerName: "Ahmad Solihin",
+            workerName: selectedUploadHolder,
             reportMonth: "Juni 2026",
           },
           transactions: [
-            { date: "2026-06-10", description: "Terima tunai kas kecil dari kantor pusat", category: "Penerimaan Kas", amount: 5000000, worker: "Ahmad Solihin", type: TransactionType.INCOME },
-            { date: "2026-06-12", description: "Besi Beton Ulir Dia 12mm 20 batang", category: "Material", amount: 3400000, worker: "Ahmad Solihin", type: TransactionType.EXPENSE },
-            { date: "2026-06-12", description: "Kawat Ikat Beton (Kawat Bendrat)", category: "Material", amount: 250000, worker: "Ahmad Solihin", type: TransactionType.EXPENSE },
-            { date: "2026-06-13", description: "Sewa mobil angkut pick-up material", category: "Transport", amount: 1200000, worker: "Ahmad Solihin", type: TransactionType.EXPENSE }
+            { date: "2026-06-10", description: "Terima tunai kas kecil dari kantor pusat", category: "Penerimaan Kas", amount: 5000000, worker: selectedUploadHolder, type: TransactionType.INCOME },
+            { date: "2026-06-12", description: "Besi Beton Ulir Dia 12mm 20 batang", category: "Material", amount: 3400000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-12", description: "Kawat Ikat Beton (Kawat Bendrat)", category: "Material", amount: 250000, worker: selectedUploadHolder, type: TransactionType.EXPENSE },
+            { date: "2026-06-13", description: "Sewa mobil angkut pick-up material", category: "Transport", amount: 1200000, worker: selectedUploadHolder, type: TransactionType.EXPENSE }
           ]
         };
       }
@@ -1224,12 +1273,21 @@ export default function App() {
               animate={{ opacity: 1, scale: 1 }}
               className="space-y-6"
             >
-              {/* Profile Card */}
-              <div className="bg-slate-800/80 backdrop-blur-md border border-slate-700/60 rounded-2xl p-5 shadow-xl">
+              {/* Profile Card & Self Profiling Form */}
+              <div className="bg-slate-800/80 backdrop-blur-md border border-slate-700/60 rounded-2xl p-5 shadow-xl space-y-4">
                 <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 bg-indigo-500/20 text-indigo-300 rounded-full flex items-center justify-center font-bold font-display text-lg border border-indigo-500/30">
-                    {selfWorker.name.charAt(0)}
-                  </div>
+                  {editPhotoUrl ? (
+                    <img
+                      src={editPhotoUrl}
+                      alt={selfWorker.name}
+                      className="w-16 h-16 object-cover rounded-full border border-indigo-500/50 shadow-md shadow-indigo-500/10 shrink-0"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 bg-indigo-500/20 text-indigo-300 rounded-full flex items-center justify-center font-bold font-display text-2xl border border-indigo-500/30 shrink-0 shadow-inner">
+                      {selfWorker.name.charAt(0)}
+                    </div>
+                  )}
                   <div className="flex-1">
                     <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest font-mono">Pekerja Terverifikasi</span>
                     <h2 className="text-lg font-bold text-white leading-tight mt-0.5">{selfWorker.name}</h2>
@@ -1237,6 +1295,178 @@ export default function App() {
                     {selfWorker.nik && (
                       <p className="text-[10px] text-slate-500 font-mono mt-0.5">NIK: {selfWorker.nik}</p>
                     )}
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-700/50 pt-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Lengkapi / Perbarui Data Anda:</span>
+                    </span>
+                    <span className="text-[9px] text-indigo-400 font-mono">Opsional / Simpan data Anda</span>
+                  </div>
+
+                  <div className="space-y-3 text-xs">
+                    {/* Profil Photo Selector */}
+                    <div className="bg-slate-900/40 p-2.5 rounded-xl border border-slate-850">
+                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1.5 flex items-center gap-1">
+                        <Camera className="w-3 h-3 text-slate-400" />
+                        <span>Foto Profil Mandiri</span>
+                      </label>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="user"
+                        onChange={async (e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            try {
+                              const base64 = await toBase64(e.target.files[0]);
+                              setEditPhotoUrl(base64);
+                            } catch (err) {
+                              console.error("Gagal membaca foto", err);
+                            }
+                          }
+                        }}
+                        className="w-full text-slate-400 text-xs file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-semibold file:bg-indigo-600/30 file:text-indigo-200 file:hover:bg-indigo-600/40 cursor-pointer"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1">
+                          <CreditCard className="w-3 h-3 text-slate-400" />
+                          <span>Nama Bank</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="BCA, Mandiri, BRI..."
+                          value={editBankName}
+                          onChange={(e) => setEditBankName(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 uppercase text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1">
+                          <CreditCard className="w-3 h-3 text-slate-400" />
+                          <span>No. Rekening</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Nomor Rekening"
+                          value={editBankAccount}
+                          onChange={(e) => setEditBankAccount(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">NIK KTP</label>
+                        <input
+                          type="text"
+                          placeholder="Nomor NIK KTP"
+                          value={editNik}
+                          onChange={(e) => setEditNik(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">No. WhatsApp</label>
+                        <input
+                          type="text"
+                          placeholder="Contoh: 0812xxxxx"
+                          value={editPhoneNumber}
+                          onChange={(e) => setEditPhoneNumber(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nama Lengkap</label>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Jabatan / Peran</label>
+                        <input
+                          type="text"
+                          value={editRole}
+                          onChange={(e) => setEditRole(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          setProfileSaveStatus("saving");
+                          setProfileSaveMsg("");
+                          const response = await fetch("/api/update-worker-profile", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              workerId: selfWorker.id,
+                              bankName: editBankName,
+                              bankAccount: editBankAccount,
+                              phoneNumber: editPhoneNumber,
+                              nik: editNik,
+                              photoUrl: editPhotoUrl,
+                              name: editName,
+                              role: editRole,
+                            }),
+                          });
+                          const result = await response.json();
+                          if (response.ok) {
+                            setProfileSaveStatus("success");
+                            setProfileSaveMsg(result.message);
+                            setSelfWorker(result.worker);
+                            // Also update the global workers state to sync immediately
+                            setWorkers(workers.map(w => w.id === selfWorker.id ? result.worker : w));
+                          } else {
+                            setProfileSaveStatus("error");
+                            setProfileSaveMsg(result.error || "Gagal memperbarui profil.");
+                          }
+                        } catch (err: any) {
+                          setProfileSaveStatus("error");
+                          setProfileSaveMsg(err.message || "Kesalahan jaringan.");
+                        }
+                      }}
+                      disabled={profileSaveStatus === "saving"}
+                      className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-bold py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/15"
+                    >
+                      {profileSaveStatus === "saving" ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Menyimpan Profil...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Simpan Perubahan Profil</span>
+                        </>
+                      )}
+                    </button>
+
+                    {profileSaveMsg && (
+                      <div className={`mt-2 p-2.5 rounded-xl text-[11px] font-medium text-center ${
+                        profileSaveStatus === "success" 
+                          ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400" 
+                          : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                      }`}>
+                        {profileSaveMsg}
+                      </div>
+                    )}
+
                   </div>
                 </div>
               </div>
@@ -1538,7 +1768,7 @@ export default function App() {
 
   // Combined sorted unique list of potential holders
   const uniqueHolders = Array.from(
-    new Set([...existingHolders, ...registeredWorkerNames])
+    new Set([...existingHolders, ...pettyCashHolders, ...registeredWorkerNames])
   ).sort();
 
   // Filter reports based on chosen filter
@@ -2224,6 +2454,20 @@ export default function App() {
                     <p className="text-xs text-slate-500 mb-4 text-balance">
                       Unggah file laporan PDF atau JPG petty cash untuk membaca otomatis setiap transaksi menggunakan kecerdasan Gemini AI.
                     </p>
+
+                    {/* Petty Cash Holder Selector */}
+                    <div className="mb-4 space-y-1">
+                      <label className="block text-xs font-bold text-slate-700">Pemegang Petty Cash Laporan Ini:</label>
+                      <select
+                        value={selectedUploadHolder}
+                        onChange={(e) => setSelectedUploadHolder(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-250 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                      >
+                        {pettyCashHolders.map((holder) => (
+                          <option key={holder} value={holder}>👤 {holder}</option>
+                        ))}
+                      </select>
+                    </div>
     
                     {/* Drag and Drop Zone */}
                     <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-indigo-500 transition relative bg-slate-50/50">
@@ -2284,6 +2528,86 @@ export default function App() {
                   <span><strong>Tip:</strong> Pindai atau unggah struk kwitansi digital (format PDF atau Gambar JPG/PNG). AI akan mengekstrak tanggal, deskripsi, kategori, nominal, dan nama pekerja secara otomatis.</span>
                 </div>
 
+              </div>
+
+              {/* KELOLA PEMEGANG PETTY CASH CARD */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                <h3 className="text-sm font-bold text-slate-900 font-display mb-2 flex items-center gap-1.5">
+                  <Users className="w-4 h-4 text-indigo-600" />
+                  <span>Kelola Pemegang Petty Cash</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mb-4">
+                  Tambahkan pemegang laporan petty cash baru untuk dikaitkan saat upload laporan PDF/Gambar kwitansi di atas.
+                </p>
+
+                <div className="space-y-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nama pemegang baru..."
+                      id="new_holder_input"
+                      className="flex-1 bg-slate-50 border border-slate-250 rounded-xl px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const target = e.currentTarget;
+                          const newHolderName = target.value.trim();
+                          if (newHolderName !== "") {
+                            if (pettyCashHolders.includes(newHolderName)) {
+                              alert("Nama pemegang ini sudah terdaftar.");
+                              return;
+                            }
+                            setPettyCashHolders([...pettyCashHolders, newHolderName]);
+                            setSelectedUploadHolder(newHolderName);
+                            target.value = "";
+                          }
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = document.getElementById("new_holder_input") as HTMLInputElement;
+                        if (input && input.value.trim() !== "") {
+                          const newHolderName = input.value.trim();
+                          if (pettyCashHolders.includes(newHolderName)) {
+                            alert("Nama pemegang ini sudah terdaftar.");
+                            return;
+                          }
+                          setPettyCashHolders([...pettyCashHolders, newHolderName]);
+                          setSelectedUploadHolder(newHolderName);
+                          input.value = "";
+                        }
+                      }}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl transition cursor-pointer flex items-center justify-center shrink-0"
+                    >
+                      Tambah
+                    </button>
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-3">
+                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-2">Daftar Pemegang Saat Ini:</div>
+                    <div className="flex flex-wrap gap-1.5 max-h-[110px] overflow-y-auto pr-1">
+                      {pettyCashHolders.map((holder) => (
+                        <div key={holder} className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[10px] font-semibold text-slate-700 flex items-center gap-1.5">
+                          <span>{holder}</span>
+                          {holder !== "Suryo Pranoto" && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Hapus ${holder} dari daftar pemegang?`)) {
+                                  setPettyCashHolders(pettyCashHolders.filter(h => h !== holder));
+                                }
+                              }}
+                              className="text-slate-400 hover:text-red-500 font-bold font-sans hover:bg-slate-200 rounded px-0.5 cursor-pointer text-xs"
+                            >
+                              &times;
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* REPORT HISTORY LIST */}
@@ -2920,12 +3244,28 @@ export default function App() {
                     {workers.map((worker) => (
                       <tr key={worker.id} className="hover:bg-slate-50/50">
                         <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-900">{worker.name}</div>
-                          <div className="flex flex-col gap-0.5 mt-0.5">
-                            <span className="text-[10px] font-mono text-slate-500">ID: {worker.id}</span>
-                            {worker.nik && (
-                              <span className="text-[10px] font-mono text-slate-400">NIK: {worker.nik}</span>
+                          <div className="flex items-center gap-3">
+                            {worker.photoUrl ? (
+                              <img
+                                src={worker.photoUrl}
+                                alt={worker.name}
+                                className="w-10 h-10 object-cover rounded-full border border-slate-200 shrink-0"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center font-bold text-indigo-500 text-xs shrink-0">
+                                {worker.name.charAt(0)}
+                              </div>
                             )}
+                            <div>
+                              <div className="font-bold text-slate-900">{worker.name}</div>
+                              <div className="flex flex-col gap-0.5 mt-0.5">
+                                <span className="text-[10px] font-mono text-slate-500 font-medium">ID: {worker.id}</span>
+                                {worker.nik && (
+                                  <span className="text-[10px] font-mono text-slate-400 font-medium">NIK: {worker.nik}</span>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </td>
                         <td className="py-3.5 px-4 text-slate-700 font-medium">{worker.role}</td>

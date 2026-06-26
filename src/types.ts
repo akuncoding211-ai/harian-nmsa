@@ -12,6 +12,7 @@ export interface Worker {
   bankAccount?: string;
   phoneNumber?: string;
   nik?: string;
+  photoUrl?: string;
 }
 
 export interface DailyAttendance {
