@@ -245,6 +245,7 @@ app.post("/api/parse-petty-cash", async (req, res) => {
 
     const textPart = {
       text: `Analyze this field worker petty cash document (PDF/Image) and extract all transaction lines. 
+The document's file name is: "${fileName}".
 Strictly structure your response in Indonesian/English as specified below.
 Provide a clean summary of cash inflows (In/Kredit/Penerimaan) and outflows (Out/Debet/Pengeluaran).
 Ensure you capture:
@@ -252,14 +253,14 @@ Ensure you capture:
 2. Description of the transaction (keterangan)
 3. Category (e.g., Material, Transport, Konsumsi, Tools, Lain-lain)
 4. Amount (numeric value only)
-5. Worker Name (Nama Pekerja/Karyawan if mentioned, otherwise leave blank or empty string)
+5. Worker Name (Nama Pekerja/Karyawan. If not explicitly found inside the document content, look for the worker's name in the file name "${fileName}". For example, in "10. LAPORAN DANA OPERASIONAL Bpk Suryo Pranoto - Bpk Hasby (Periode 17 - 23 Juni 2026).pdf", the worker name is "Bpk Suryo Pranoto & Bpk Hasby" or "Suryo Pranoto, Hasby". If no worker name can be found anywhere, use "Pekerja Lapangan")
 6. Transaction Type: 'EXPENSE' or 'INCOME'
 
 Also find the overall document summary if stated, such as:
 - Total cash received (Total Penerimaan)
 - Total cash spent (Total Pengeluaran)
-- Worker/Field staff name
-- Period / Month of report
+- Worker/Field staff name (Check the file name "${fileName}" if the document itself doesn't mention it clearly. Do NOT leave this empty)
+- Period / Month of report (Check the file name "${fileName}" for month/period if the document itself doesn't mention it clearly, e.g. "Juni 2026" or "17 - 23 Juni 2026")
 
 Return a strict JSON response conforming exactly to this structure:
 {
@@ -329,7 +330,7 @@ Return a strict JSON response conforming exactly to this structure:
                     workerName: { type: Type.STRING },
                     reportMonth: { type: Type.STRING },
                   },
-                  required: ["totalIncome", "totalExpense", "remainingBalance"],
+                  required: ["totalIncome", "totalExpense", "remainingBalance", "workerName", "reportMonth"],
                 },
               },
               required: ["transactions", "summary"],
