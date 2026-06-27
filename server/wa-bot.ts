@@ -1,17 +1,18 @@
-import makeWASocket, { 
-  useMultiFileAuthState, 
-  DisconnectReason, 
-  WASocket 
-} from "@whiskeysockets/baileys";
+import * as baileys from "@whiskeysockets/baileys";
 import pino from "pino";
 import path from "path";
 import fs from "fs";
 import QRCode from "qrcode";
 
+// Safely extract baileys methods handling any ESM/CJS interop issues
+const makeWASocket = (baileys.default || (baileys as any).makeWASocket || (baileys as any).default?.default || (baileys as any).default?.makeWASocket);
+const useMultiFileAuthState = (baileys.useMultiFileAuthState || (baileys as any).default?.useMultiFileAuthState);
+const DisconnectReason = (baileys.DisconnectReason || (baileys as any).default?.DisconnectReason);
+
 const AUTH_DIR = path.join(process.cwd(), "auth_info_baileys");
 
 // Global state variables for WhatsApp Bot
-let sock: WASocket | null = null;
+let sock: any = null;
 let connectionStatus: "disconnected" | "connecting" | "connected" | "qr" = "disconnected";
 let qrCodeDataUrl: string | null = null;
 let connectedUser: { id: string; name?: string } | null = null;
