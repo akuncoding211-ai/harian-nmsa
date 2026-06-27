@@ -565,6 +565,114 @@ app.post("/api/wa/send-test", async (req, res) => {
   res.json(result);
 });
 
+// Helper to determine weekday in Jakarta timezone ("Sunday"=0, "Saturday"=6, etc.)
+function getJakartaDayOfWeek(dateStr: string): number {
+  const parts = dateStr.split("-").map(Number);
+  const d = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0));
+  const weekdayFormatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Jakarta",
+    weekday: "long"
+  });
+  const dayName = weekdayFormatter.format(d);
+  if (dayName === "Sunday") return 0;
+  if (dayName === "Monday") return 1;
+  if (dayName === "Tuesday") return 2;
+  if (dayName === "Wednesday") return 3;
+  if (dayName === "Thursday") return 4;
+  if (dayName === "Friday") return 5;
+  if (dayName === "Saturday") return 6;
+  return d.getDay();
+}
+
+// Memory cache for Indonesian Holidays
+let indonesianHolidaysCache: Record<string, { holiday: boolean; name: string }> | null = null;
+let lastHolidaysFetchTime = 0;
+
+// Fallback list of major national holidays in Indonesia (2026 and 2027)
+const FALLBACK_HOLIDAYS: Record<string, string> = {
+  "2026-01-01": "Tahun Baru 2026 Masehi",
+  "2026-01-29": "Tahun Baru Imlek 2577 Kongzili",
+  "2026-02-15": "Isra Mikraj Nabi Muhammad SAW",
+  "2026-03-11": "Hari Suci Nyepi Tahun Baru Saka 1948",
+  "2026-03-20": "Wafat Yesus Kristus & Hari Raya Idul Fitri 1447 Hijriah",
+  "2026-03-21": "Hari Raya Idul Fitri 1447 Hijriah",
+  "2026-03-22": "Kenaikan Yesus Kristus",
+  "2026-05-01": "Hari Buruh Internasional",
+  "2026-05-13": "Hari Raya Waisak 2570 BE",
+  "2026-05-21": "Kenaikan Yesus Kristus",
+  "2026-06-01": "Hari Lahir Pancasila",
+  "2026-06-27": "Hari Raya Idul Adha 1447 Hijriah",
+  "2026-07-17": "Tahun Baru Islam 1448 Hijriah",
+  "2026-08-17": "Hari Kemerdekaan Republik Indonesia",
+  "2026-09-26": "Maulid Nabi Muhammad SAW",
+  "2026-12-25": "Hari Raya Natal",
+  "2027-01-01": "Tahun Baru 2027 Masehi",
+  "2027-02-06": "Isra Mikraj Nabi Muhammad SAW",
+  "2027-02-17": "Tahun Baru Imlek 2578 Kongzili",
+  "2027-03-11": "Hari Suci Nyepi Tahun Baru Saka 1949",
+  "2027-03-26": "Wafat Yesus Kristus",
+  "2027-03-28": "Kenaikan Yesus Kristus",
+  "2027-04-09": "Hari Raya Idul Fitri 1448 Hijriah",
+  "2027-04-10": "Hari Raya Idul Fitri 1448 Hijriah",
+  "2027-05-01": "Hari Buruh Internasional",
+  "2027-05-20": "Hari Raya Waisak 2571 BE",
+  "2027-05-27": "Kenaikan Yesus Kristus",
+  "2027-06-01": "Hari Lahir Pancasila",
+  "2027-06-16": "Hari Raya Idul Adha 1448 Hijriah",
+  "2027-07-06": "Tahun Baru Islam 1449 Hijriah",
+  "2027-08-17": "Hari Kemerdekaan Republik Indonesia",
+  "2027-09-15": "Maulid Nabi Muhammad SAW",
+  "2027-12-25": "Hari Raya Natal",
+};
+
+async function fetchIndonesianHolidays(): Promise<Record<string, { holiday: boolean; name: string }>> {
+  const now = Date.now();
+  // Cache holidays for 24 hours to prevent spamming GitHub Raw API
+  if (indonesianHolidaysCache && (now - lastHolidaysFetchTime < 24 * 60 * 60 * 1000)) {
+    return indonesianHolidaysCache;
+  }
+  try {
+    console.log("Fetching Indonesian national holidays from GitHub Raw...");
+    const res = await fetch("https://raw.githubusercontent.com/guangrei/Json-Indonesia-holidays/master/calendar.json", {
+      headers: { "User-Agent": "PTNusantaraMineralSuksesAbadi/1.0" }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      indonesianHolidaysCache = data;
+      lastHolidaysFetchTime = now;
+      console.log(`Fetched ${Object.keys(data).length} holiday definitions successfully.`);
+      return data;
+    }
+  } catch (err) {
+    console.error("Failed to fetch holidays dynamically, using fallback map:", err);
+  }
+  return indonesianHolidaysCache || {};
+}
+
+// Returns { isBlocked: boolean; reason: string | null }
+async function checkIsHolidayOrWeekend(dateStr: string): Promise<{ isBlocked: boolean; reason: string | null }> {
+  const dayOfWeek = getJakartaDayOfWeek(dateStr);
+  if (dayOfWeek === 0) {
+    return { isBlocked: true, reason: "Hari Minggu (Akhir Pekan)" };
+  }
+  if (dayOfWeek === 6) {
+    return { isBlocked: true, reason: "Hari Sabtu (Akhir Pekan)" };
+  }
+
+  // Check online calendar API
+  const holidays = await fetchIndonesianHolidays();
+  if (holidays[dateStr] && holidays[dateStr].holiday) {
+    return { isBlocked: true, reason: `Hari Libur Nasional: ${holidays[dateStr].name}` };
+  }
+
+  // Check fallback static map
+  if (FALLBACK_HOLIDAYS[dateStr]) {
+    return { isBlocked: true, reason: `Hari Libur Nasional: ${FALLBACK_HOLIDAYS[dateStr]}` };
+  }
+
+  return { isBlocked: false, reason: null };
+}
+
 // GET /api/cron-reminder (UptimeRobot automated pinger & manual click trigger)
 app.get("/api/cron-reminder", async (req, res) => {
   const force = req.query.force === "true";
@@ -586,6 +694,26 @@ app.get("/api/cron-reminder", async (req, res) => {
   // Conditions to trigger: force or (time is matched and not sent today yet)
   const isTimeTrigger = currentHour > targetHour || (currentHour === targetHour && currentMinute >= targetMinute);
   const alreadySentToday = state.lastCronSentDate === todayYMD;
+
+  // Holiday and Weekend Check
+  const holidayCheck = await checkIsHolidayOrWeekend(todayYMD);
+
+  if (holidayCheck.isBlocked && !force) {
+    // If it's Saturday, Sunday, or a National Holiday, we block the reminder and mark today as handled.
+    const statusMsg = `Dilewati otomatis: ${holidayCheck.reason}.`;
+    state.lastCronStatus = statusMsg;
+    if (isTimeTrigger) {
+      state.lastCronSentDate = todayYMD;
+    }
+    writeState(state);
+    return res.json({
+      success: true,
+      message: `Pesan pengingat dilewati otomatis karena hari ini adalah ${holidayCheck.reason}`,
+      isHoliday: true,
+      reason: holidayCheck.reason,
+      status: statusMsg
+    });
+  }
 
   if (force || (isTimeTrigger && !alreadySentToday)) {
     console.log(`Cron execution triggered: force=${force}, isTimeTrigger=${isTimeTrigger}, alreadySentToday=${alreadySentToday}`);

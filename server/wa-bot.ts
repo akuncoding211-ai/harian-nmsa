@@ -5,9 +5,37 @@ import fs from "fs";
 import QRCode from "qrcode";
 
 // Safely extract baileys methods handling any ESM/CJS interop issues
-const makeWASocket = (baileys.default || (baileys as any).makeWASocket || (baileys as any).default?.default || (baileys as any).default?.makeWASocket);
-const useMultiFileAuthState = (baileys.useMultiFileAuthState || (baileys as any).default?.useMultiFileAuthState);
-const DisconnectReason = (baileys.DisconnectReason || (baileys as any).default?.DisconnectReason);
+const getBaileysModule = () => {
+  if (!baileys) return {} as any;
+  return baileys;
+};
+
+const getMakeWASocket = () => {
+  const pkg = getBaileysModule();
+  if (typeof pkg.makeWASocket === "function") return pkg.makeWASocket;
+  if (pkg.default && typeof pkg.default.makeWASocket === "function") return pkg.default.makeWASocket;
+  if (pkg.default && typeof pkg.default.default === "function") return pkg.default.default;
+  if (typeof pkg.default === "function") return pkg.default;
+  return (pkg as any).makeWASocket || (pkg as any).default;
+};
+
+const getUseMultiFileAuthState = () => {
+  const pkg = getBaileysModule();
+  if (typeof pkg.useMultiFileAuthState === "function") return pkg.useMultiFileAuthState;
+  if (pkg.default && typeof pkg.default.useMultiFileAuthState === "function") return pkg.default.useMultiFileAuthState;
+  return (pkg as any).useMultiFileAuthState;
+};
+
+const getDisconnectReason = () => {
+  const pkg = getBaileysModule();
+  if (pkg.DisconnectReason) return pkg.DisconnectReason;
+  if (pkg.default && pkg.default.DisconnectReason) return pkg.default.DisconnectReason;
+  return (pkg as any).DisconnectReason || {};
+};
+
+const makeWASocket = getMakeWASocket();
+const useMultiFileAuthState = getUseMultiFileAuthState();
+const DisconnectReason = getDisconnectReason();
 
 const AUTH_DIR = path.join(process.cwd(), "auth_info_baileys");
 
@@ -52,6 +80,20 @@ export async function initWhatsApp() {
 
     connectionStatus = "connecting";
     lastError = null;
+
+    console.log("Baileys integration checks:", {
+      makeWASocketType: typeof makeWASocket,
+      useMultiFileAuthStateType: typeof useMultiFileAuthState,
+      DisconnectReasonType: typeof DisconnectReason,
+    });
+
+    if (typeof useMultiFileAuthState !== "function") {
+      throw new Error("useMultiFileAuthState is not a function. Check baileys bundle/import.");
+    }
+
+    if (typeof makeWASocket !== "function") {
+      throw new Error("makeWASocket is not a function. Check baileys bundle/import.");
+    }
 
     // Initialize Auth state folder
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
