@@ -31,7 +31,7 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
   const totalCost = report.records.reduce((sum, r) => {
     let presentDaysForThisWeek = 0;
     dates.forEach((d) => {
-      if (r.attendance[d]) presentDaysForThisWeek++;
+      if (r.attendance[d] === true) presentDaysForThisWeek++;
     });
     return sum + (presentDaysForThisWeek * r.dailyAllowance);
   }, 0);
@@ -41,9 +41,17 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
     let totalAttendance = 0;
     
     const dayCells = dates.map((date) => {
-      const isPresent = record.attendance[date] || false;
-      if (isPresent) totalAttendance++;
-      return `<td class="text-center font-bold" style="color: ${isPresent ? '#16a34a' : '#94a3b8'};">${isPresent ? "Hadir" : "-"}</td>`;
+      const status = record.attendance[date] as any;
+      if (status === true) {
+        totalAttendance++;
+        return `<td class="text-center font-bold" style="color: #16a34a; font-size: 8px;">Hadir</td>`;
+      } else if (status === "Sakit") {
+        return `<td class="text-center font-bold" style="color: #ea580c; font-size: 8px; background-color: #fdf8f6;">Sakit</td>`;
+      } else if (status === "Izin") {
+        return `<td class="text-center font-bold" style="color: #0284c7; font-size: 8px; background-color: #f0f9ff;">Izin</td>`;
+      } else {
+        return `<td class="text-center" style="color: #94a3b8; font-size: 8px;">-</td>`;
+      }
     }).join("");
 
     const totalAllowance = totalAttendance * record.dailyAllowance;
@@ -52,29 +60,29 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
     let signatureContent = "";
     if (workerSignatureUrl) {
       signatureContent = `
-        <div style="display: flex; flex-direction: column; align-items: ${index % 2 === 0 ? 'flex-start' : 'flex-end'}; padding: 2px 10px;">
-          <span style="font-size: 7px; color: #64748b; font-weight: bold; margin-bottom: 2px;">${index + 1}. Paraf Online</span>
-          <img src="${workerSignatureUrl}" style="max-height: 28px; max-width: 110px; object-fit: contain; background: transparent; mix-blend-mode: multiply;" />
+        <div style="display: flex; flex-direction: column; align-items: ${index % 2 === 0 ? 'flex-start' : 'flex-end'}; padding: 1px 4px;">
+          <span style="font-size: 6.5px; color: #64748b; font-weight: bold; margin-bottom: 1px;">${index + 1}. Paraf</span>
+          <img src="${workerSignatureUrl}" style="max-height: 24px; max-width: 80px; object-fit: contain; background: transparent; mix-blend-mode: multiply;" />
         </div>
       `;
     } else {
       signatureContent = index % 2 === 0 
-        ? `<div style="text-align: left; padding-left: 10px; font-size: 8px; font-weight: bold; color: #475569;">${index + 1}. .......................</div>`
-        : `<div style="text-align: right; padding-right: 10px; font-size: 8px; font-weight: bold; color: #475569;">${index + 1}. .......................</div>`;
+        ? `<div style="text-align: left; padding-left: 4px; font-size: 7.5px; font-weight: bold; color: #475569;">${index + 1}. .............</div>`
+        : `<div style="text-align: right; padding-right: 4px; font-size: 7.5px; font-weight: bold; color: #475569;">${index + 1}. .............</div>`;
     }
 
     return `
       <tr>
-        <td class="text-center font-mono" style="color: #64748b;">${index + 1}</td>
-        <td>
-          <div style="font-weight: bold; color: #0f172a;">${worker?.name || "Karyawan Tidak Dikenal"}</div>
-          <div style="font-size: 8px; color: #64748b;">${worker?.role || "-"}</div>
+        <td class="text-center font-mono" style="color: #64748b; font-size: 8px; padding: 4px 2px;">${index + 1}</td>
+        <td style="padding: 4px 6px;">
+          <div style="font-weight: bold; color: #0f172a; font-size: 8.5px; line-height: 1.1;">${worker?.name || "Karyawan Tidak Dikenal"}</div>
+          <div style="font-size: 7.5px; color: #64748b; margin-top: 1px;">${worker?.role || "-"}</div>
         </td>
         ${dayCells}
-        <td class="text-center font-bold" style="background-color: #f8fafc;">${totalAttendance} Hari</td>
-        <td class="text-right font-mono">Rp ${record.dailyAllowance.toLocaleString("id-ID")}</td>
-        <td class="text-right font-mono font-bold" style="background-color: #f8fafc;">Rp ${totalAllowance.toLocaleString("id-ID")}</td>
-        <td style="width: 140px; vertical-align: middle; padding: 4px; background-color: #fff;">
+        <td class="text-center font-bold" style="background-color: #f8fafc; font-size: 8.5px; padding: 4px 2px;">${totalAttendance} H</td>
+        <td class="text-right font-mono" style="font-size: 8px; padding: 4px 4px;">${record.dailyAllowance.toLocaleString("id-ID")}</td>
+        <td class="text-right font-mono font-bold" style="background-color: #f8fafc; font-size: 8.5px; padding: 4px 4px;">${totalAllowance.toLocaleString("id-ID")}</td>
+        <td style="width: 100px; vertical-align: middle; padding: 2px; background-color: #fff;">
           ${signatureContent}
         </td>
       </tr>
@@ -93,29 +101,30 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
         <title>Rekap Uang Makan Mingguan - ${report.weekStartDate}</title>
         <style>
           @page {
-            size: A4 landscape;
-            margin: 12mm;
+            size: A4 portrait;
+            margin: 8mm;
           }
           body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             color: #1e293b;
             padding: 0;
             margin: 0;
-            font-size: 10px;
-            line-height: 1.4;
+            font-size: 9px;
+            line-height: 1.35;
+            background-color: #fff;
           }
           .header {
             display: flex;
             align-items: center;
             justify-content: flex-start;
-            gap: 20px;
-            margin-bottom: 15px;
-            border-bottom: 2.5px solid #0f172a;
-            padding-bottom: 12px;
+            gap: 15px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 8px;
             text-align: left;
           }
           .logo {
-            height: 76px;
+            height: 52px;
             width: auto;
             object-fit: contain;
           }
@@ -123,42 +132,44 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
             display: flex;
             flex-direction: column;
             justify-content: center;
-            height: 76px;
           }
           .header h1 {
-            margin: 0 0 4px 0;
-            font-size: 16px;
+            margin: 0 0 2px 0;
+            font-size: 13px;
             color: #1e3a8a;
             font-weight: 800;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
             line-height: 1.2;
           }
           .header h2 {
             margin: 0;
-            font-size: 13px;
+            font-size: 10px;
             color: #0f172a;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
             line-height: 1.2;
-          }
-          .header p {
-            display: none;
           }
           .meta-container {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 12px;
           }
           .meta-table {
             border-collapse: collapse;
+            width: 48%;
           }
           .meta-table td {
-            padding: 3px 0;
-            font-size: 10px;
+            padding: 2px 0;
+            font-size: 9px;
+            vertical-align: top;
           }
           .meta-label {
-            font-weight: bold;
-            width: 150px;
+            font-weight: 600;
+            width: 120px;
             color: #475569;
           }
           .meta-value {
@@ -167,53 +178,59 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
           .report-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
           }
           .report-table th {
             background-color: #f1f5f9;
             border: 1px solid #cbd5e1;
-            padding: 6px 4px;
-            font-weight: bold;
-            font-size: 9px;
+            padding: 5px 3px;
+            font-weight: 700;
+            font-size: 8px;
             text-transform: uppercase;
             color: #334155;
+            text-align: center;
           }
           .report-table td {
             border: 1px solid #cbd5e1;
-            padding: 6px 6px;
-            font-size: 9px;
+            padding: 4px 4px;
+            font-size: 8px;
+            vertical-align: middle;
           }
           .text-center { text-align: center; }
           .text-right { text-align: right; }
           .font-bold { font-weight: bold; }
+          .font-mono { font-family: monospace; }
           
           .signature-container {
             display: flex;
             justify-content: space-between;
-            margin-top: 30px;
+            margin-top: 25px;
             page-break-inside: avoid;
+            padding: 0 10px;
           }
           .signature-box {
-            width: 250px;
+            width: 220px;
             text-align: center;
           }
           .signature-title {
-            font-size: 10px;
-            margin-bottom: 55px;
-            color: #334155;
+            font-size: 8.5px;
+            margin-bottom: 45px;
+            color: #475569;
+            font-weight: 500;
           }
           .signature-name {
             font-weight: bold;
-            font-size: 10px;
+            font-size: 9px;
             color: #0f172a;
             border-bottom: 1px solid #000;
             display: inline-block;
-            padding: 0 15px;
+            padding: 0 10px;
+            padding-bottom: 1px;
           }
           .signature-role {
-            font-size: 9px;
+            font-size: 8px;
             color: #64748b;
-            margin-top: 3px;
+            margin-top: 2px;
           }
           
           @media print {
@@ -251,8 +268,8 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
           
           <table class="meta-table">
             <tr>
-              <td class="meta-label">Total Pengeluaran Uang Makan</td>
-              <td class="meta-value" style="font-size: 11px;">: &nbsp; <strong style="color: #0f172a;">Rp ${totalCost.toLocaleString("id-ID")}</strong></td>
+              <td class="meta-label">Total Uang Makan</td>
+              <td class="meta-value" style="font-size: 10px;">: &nbsp; <strong style="color: #1e3a8a;">Rp ${totalCost.toLocaleString("id-ID")}</strong></td>
             </tr>
             <tr>
               <td class="meta-label">Tanggal Cetak</td>
@@ -264,17 +281,17 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
         <table class="report-table">
           <thead>
             <tr>
-              <th style="width: 30px;" class="text-center">No</th>
-              <th style="width: 150px;">Nama Pekerja / Jabatan</th>
-              <th style="width: 50px;" class="text-center">Senin</th>
-              <th style="width: 50px;" class="text-center">Selasa</th>
-              <th style="width: 50px;" class="text-center">Rabu</th>
-              <th style="width: 50px;" class="text-center">Kamis</th>
-              <th style="width: 50px;" class="text-center">Jumat</th>
-              <th style="width: 65px;" class="text-center">Total Hadir</th>
-              <th style="width: 90px;" class="text-right">Tarif (Rp/Hari)</th>
-              <th style="width: 100px;" class="text-right">Total Uang Makan</th>
-              <th style="width: 150px;" class="text-center">Paraf Penerima (Karyawan)</th>
+              <th style="width: 20px;">No</th>
+              <th style="width: 140px; text-align: left;">Nama Pekerja / Jabatan</th>
+              <th style="width: 38px;">Senin</th>
+              <th style="width: 38px;">Selasa</th>
+              <th style="width: 38px;">Rabu</th>
+              <th style="width: 38px;">Kamis</th>
+              <th style="width: 38px;">Jumat</th>
+              <th style="width: 38px;">Hadir</th>
+              <th style="width: 60px; text-align: right;">Tarif (Rp)</th>
+              <th style="width: 75px; text-align: right;">Total (Rp)</th>
+              <th style="width: 100px;">Paraf Karyawan</th>
             </tr>
           </thead>
           <tbody>
@@ -285,18 +302,17 @@ export function printWeeklyReportPDF(report: WeeklyReport, workers: Worker[], si
         <div class="signature-container">
           <div class="signature-box">
             <div class="signature-title">Diterima & Diperiksa Oleh,</div>
-            <div class="signature-name" style="text-decoration: none; border-bottom: 1.5px solid #000; padding-bottom: 2px;">Andi Dhiya Salsabila</div>
+            <div class="signature-name" style="text-decoration: none; border-bottom: 1.2px solid #000; padding-bottom: 1px;">Andi Dhiya Salsabila</div>
             <div class="signature-role">Keuangan</div>
           </div>
           <div class="signature-box">
             <div class="signature-title">Diserahkan & Dilaporkan Oleh,</div>
-            <div class="signature-name" style="text-decoration: none; border-bottom: 1.5px solid #000; padding-bottom: 2px;">Nur Wahyudi</div>
+            <div class="signature-name" style="text-decoration: none; border-bottom: 1.2px solid #000; padding-bottom: 1px;">Nur Wahyudi</div>
             <div class="signature-role">Staff Keuangan</div>
           </div>
         </div>
         
         <script>
-          // Run print on load
           window.addEventListener('DOMContentLoaded', () => {
             setTimeout(() => {
               window.print();

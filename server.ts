@@ -17,13 +17,25 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 // Path for state storage
 const DATA_FILE = path.join(process.cwd(), "data-store.json");
 
-// Helper to generate deterministic daily pin
-function getAutomaticDailyPin(): string {
+// Helper to get date string in Jakarta timezone
+function getJakartaDateStr(): string {
   const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const dateStr = `${year}-${month}-${day}`;
+  const formatter = new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(d);
+  const day = parts.find(p => p.type === "day")?.value || "01";
+  const month = parts.find(p => p.type === "month")?.value || "01";
+  const year = parts.find(p => p.type === "year")?.value || "2026";
+  return `${year}-${month}-${day}`;
+}
+
+// Helper to generate deterministic daily pin using Asia/Jakarta date
+function getAutomaticDailyPin(): string {
+  const dateStr = getJakartaDateStr();
   
   let hash = 0;
   for (let i = 0; i < dateStr.length; i++) {
@@ -49,6 +61,24 @@ function readState() {
       if (!parsed.pettyCashHolders) {
         parsed.pettyCashHolders = ["Suryo Pranoto"];
       }
+      if (!parsed.attendanceLogs) {
+        parsed.attendanceLogs = [];
+      }
+      if (parsed.waMethod === undefined) {
+        parsed.waMethod = "desktop";
+      }
+      if (parsed.autoReminderHour === undefined) {
+        parsed.autoReminderHour = "09:00";
+      }
+      if (parsed.lastCronPing === undefined) {
+        parsed.lastCronPing = "";
+      }
+      if (parsed.lastCronStatus === undefined) {
+        parsed.lastCronStatus = "";
+      }
+      if (parsed.lastCronSentDate === undefined) {
+        parsed.lastCronSentDate = "";
+      }
       return parsed;
     }
   } catch (error) {
@@ -61,7 +91,13 @@ function readState() {
     pettyCashReports: [],
     attendancePin: autoPin,
     signatures: {},
-    pettyCashHolders: ["Suryo Pranoto"]
+    pettyCashHolders: ["Suryo Pranoto"],
+    attendanceLogs: [],
+    waMethod: "desktop",
+    autoReminderHour: "09:00",
+    lastCronPing: "",
+    lastCronStatus: "",
+    lastCronSentDate: ""
   };
 }
 
@@ -100,7 +136,21 @@ app.get("/api/shared-state", (req, res) => {
 // POST Shared State (Save data from Admin dashboard)
 app.post("/api/shared-state", (req, res) => {
   try {
-    const { workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures, pettyCashHolders } = req.body;
+    const { 
+      workers, 
+      attendanceRecords, 
+      weeklyReports, 
+      pettyCashReports, 
+      attendancePin, 
+      signatures, 
+      pettyCashHolders, 
+      attendanceLogs,
+      waMethod,
+      autoReminderHour,
+      lastCronPing,
+      lastCronStatus,
+      lastCronSentDate
+    } = req.body;
     const currentState = readState();
 
     const updatedState = {
@@ -111,6 +161,12 @@ app.post("/api/shared-state", (req, res) => {
       attendancePin: attendancePin !== undefined ? attendancePin : currentState.attendancePin,
       signatures: signatures !== undefined ? signatures : currentState.signatures,
       pettyCashHolders: pettyCashHolders !== undefined ? pettyCashHolders : currentState.pettyCashHolders,
+      attendanceLogs: attendanceLogs !== undefined ? attendanceLogs : currentState.attendanceLogs,
+      waMethod: waMethod !== undefined ? waMethod : currentState.waMethod,
+      autoReminderHour: autoReminderHour !== undefined ? autoReminderHour : currentState.autoReminderHour,
+      lastCronPing: lastCronPing !== undefined ? lastCronPing : currentState.lastCronPing,
+      lastCronStatus: lastCronStatus !== undefined ? lastCronStatus : currentState.lastCronStatus,
+      lastCronSentDate: lastCronSentDate !== undefined ? lastCronSentDate : currentState.lastCronSentDate,
     };
 
     writeState(updatedState);
@@ -140,41 +196,94 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c; // in meters
 }
 
+async function getReverseGeocode(lat: number, lon: number): Promise<string> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=id`;
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "PTNusantaraMineralSuksesAbadi/1.0 (akuncoding211@gmail.com)"
+      }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      return data.display_name || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    }
+  } catch (err) {
+    console.error("Gagal melakukan reverse geocoding:", err);
+  }
+  return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+}
+
 // POST Self Attendance (Used by workers via WhatsApp links)
-app.post("/api/self-attend", (req, res) => {
+app.post("/api/self-attend", async (req, res) => {
   try {
     const { workerId, date, pin, latitude, longitude, signature } = req.body;
     if (!workerId || !date) {
       return res.status(400).json({ error: "ID pekerja dan tanggal wajib diisi." });
     }
 
+    const state = readState();
+    const workers = state.workers || [];
+    const worker = workers.find((w: any) => w.id === workerId && w.isActive);
+    const workerName = worker ? worker.name : "Karyawan Tidak Dikenal";
+
     if (latitude === undefined || longitude === undefined) {
       return res.status(400).json({ error: "Verifikasi lokasi GPS wajib diaktifkan untuk melakukan presensi mandiri." });
     }
 
     const distance = calculateDistance(latitude, longitude, OFFICE_LAT, OFFICE_LON);
+    const address = await getReverseGeocode(latitude, longitude);
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+    // Ensure logs array exists
+    if (!state.attendanceLogs) {
+      state.attendanceLogs = [];
+    }
+
+    // Helper to log
+    const addLog = (status: "BERHASIL" | "DITOLAK_LOKASI" | "DITOLAK_PIN") => {
+      state.attendanceLogs.unshift({
+        id: "LOG-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
+        workerId,
+        workerName,
+        date,
+        time: timeStr,
+        latitude,
+        longitude,
+        distance: Math.round(distance),
+        address,
+        status
+      });
+      // Limit to last 500 logs
+      if (state.attendanceLogs.length > 500) {
+        state.attendanceLogs = state.attendanceLogs.slice(0, 500);
+      }
+    };
+
     if (distance > MAX_DISTANCE_METERS) {
+      addLog("DITOLAK_LOKASI");
+      writeState(state);
       return res.status(403).json({ 
         error: `Gagal absen: Lokasi Anda terlalu jauh (~${Math.round(distance)} meter) dari kantor. Maksimal jarak yang diperbolehkan adalah ${MAX_DISTANCE_METERS} meter.` 
       });
     }
 
-    const state = readState();
     const serverPin = state.attendancePin || "1234";
     if (!pin) {
       return res.status(400).json({ error: "PIN presensi wajib dimasukkan." });
     }
     if (pin !== serverPin) {
+      addLog("DITOLAK_PIN");
+      writeState(state);
       return res.status(403).json({ error: "PIN presensi salah. Tanyakan PIN harian yang benar pada Mandor lapangan." });
     }
 
-    const workers = state.workers || [];
-    const records = state.attendanceRecords || [];
-
-    const worker = workers.find((w: any) => w.id === workerId && w.isActive);
     if (!worker) {
       return res.status(404).json({ error: "Pekerja tidak ditemukan atau status tidak aktif." });
     }
+
+    const records = state.attendanceRecords || [];
 
     // Attempt to find a record for this worker that already covers this date
     let recordUpdated = false;
@@ -207,6 +316,8 @@ app.post("/api/self-attend", (req, res) => {
     if (signature) {
       signatures[workerId] = signature;
     }
+
+    addLog("BERHASIL");
 
     writeState({
       ...state,
@@ -410,8 +521,176 @@ Return a strict JSON response conforming exactly to this structure:
   }
 });
 
+// --- WHATSAPP BAILEYS BOT INTEGRATION ENDPOINTS ---
+import { 
+  initWhatsApp, 
+  getWhatsAppStatus, 
+  disconnectWhatsApp, 
+  sendWhatsAppMessage,
+  requestWhatsAppPairingCode
+} from "./server/wa-bot.js";
+
+// GET WhatsApp connection status
+app.get("/api/wa/status", (req, res) => {
+  res.json(getWhatsAppStatus());
+});
+
+// POST Disconnect WhatsApp connection
+app.post("/api/wa/disconnect", async (req, res) => {
+  const result = await disconnectWhatsApp();
+  res.json(result);
+});
+
+// POST Request pairing code for phone linking
+app.post("/api/wa/pairing-code", async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ error: "Nomor WhatsApp wajib diisi." });
+  }
+  try {
+    const code = await requestWhatsAppPairingCode(phone);
+    res.json({ success: true, code });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Gagal membuat Kode Pairing." });
+  }
+});
+
+// POST Send a test WhatsApp message manually
+app.post("/api/wa/send-test", async (req, res) => {
+  const { phone, message } = req.body;
+  if (!phone || !message) {
+    return res.status(400).json({ error: "Nomor WhatsApp dan pesan wajib diisi." });
+  }
+  const result = await sendWhatsAppMessage(phone, message);
+  res.json(result);
+});
+
+// GET /api/cron-reminder (UptimeRobot automated pinger & manual click trigger)
+app.get("/api/cron-reminder", async (req, res) => {
+  const force = req.query.force === "true";
+  const state = readState();
+  const todayYMD = getJakartaDateStr();
+  
+  // Format neat local Indonesian time string
+  const nowStr = new Date().toLocaleTimeString("id-ID", { timeZone: "Asia/Jakarta" });
+  state.lastCronPing = `${todayYMD} ${nowStr} WIB`;
+  
+  // Get current Jakarta hour/minute
+  const jktTimeString = new Date().toLocaleTimeString("en-US", { timeZone: "Asia/Jakarta", hour12: false });
+  const [currentHour, currentMinute] = jktTimeString.split(":").map(Number);
+  
+  // Parse scheduled hour/minute
+  const scheduledTime = state.autoReminderHour || "09:00";
+  const [targetHour, targetMinute] = scheduledTime.split(":").map(Number);
+
+  // Conditions to trigger: force or (time is matched and not sent today yet)
+  const isTimeTrigger = currentHour > targetHour || (currentHour === targetHour && currentMinute >= targetMinute);
+  const alreadySentToday = state.lastCronSentDate === todayYMD;
+
+  if (force || (isTimeTrigger && !alreadySentToday)) {
+    console.log(`Cron execution triggered: force=${force}, isTimeTrigger=${isTimeTrigger}, alreadySentToday=${alreadySentToday}`);
+    
+    // Check WhatsApp connection status
+    const waStatus = getWhatsAppStatus();
+    if (waStatus.status !== "connected") {
+      state.lastCronStatus = `Gagal mengirim pengingat otomatis: WhatsApp Bot belum terhubung/scan.`;
+      writeState(state);
+      return res.status(500).json({ 
+        success: false, 
+        message: "Gagal: WhatsApp Bot belum terhubung. Silakan hubungkan via scan QR code di menu pengaturan admin terlebih dahulu." 
+      });
+    }
+
+    const workers = state.workers || [];
+    const records = state.attendanceRecords || [];
+    const activeWorkers = workers.filter((w: any) => w.isActive);
+    
+    // Find workers who haven't checked in yet today
+    const absentWorkers = activeWorkers.filter((worker: any) => {
+      const record = records.find((r: any) => r.workerId === worker.id);
+      return !record || !record.attendance || !record.attendance[todayYMD];
+    });
+
+    if (absentWorkers.length === 0) {
+      state.lastCronStatus = `Selesai: Seluruh pekerja aktif (${activeWorkers.length}) sudah melakukan absen hadir hari ini.`;
+      if (!force) {
+        state.lastCronSentDate = todayYMD;
+      }
+      writeState(state);
+      return res.json({ 
+        success: true, 
+        message: "Seluruh pekerja aktif sudah absen hari ini. Tidak ada pengingat yang perlu dikirim." 
+      });
+    }
+
+    let sentCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+    
+    const hostOrigin = req.protocol + "://" + req.get("host");
+    const currentPin = state.attendancePin || "1234";
+
+    for (const worker of absentWorkers) {
+      if (!worker.phoneNumber) {
+        failedCount++;
+        continue;
+      }
+
+      // Generate pre-filled PIN login URL!
+      const loginUrl = `${hostOrigin}/?id=${worker.id}&pin=${currentPin}`;
+      
+      const message = `*PENGINGAT ABSENSI NUSANTARA* 👷‍♂️✨\n\nHalo, *${worker.name}*!\n\nKami mengingatkan Anda untuk segera melakukan absensi harian agar pencatatan Uang Makan harian (Rp 25.000) Anda tetap terhitung lancar.\n\nSekarang absensi sangat mudah! Anda tidak perlu menginput PIN harian secara manual lagi. Silakan *klik langsung* link di bawah ini dan tekan tombol *Absen Sekarang*:\n\n👉 *${loginUrl}*\n\n_Harap lakukan absensi sebelum jam kerja berakhir. Tetap utamakan keselamatan kerja ya! Terimakasih._ 🙏🏼`;
+
+      const result = await sendWhatsAppMessage(worker.phoneNumber, message);
+      if (result.success) {
+        sentCount++;
+      } else {
+        failedCount++;
+        if (result.error) errors.push(result.error);
+      }
+    }
+
+    state.lastCronStatus = `Berhasil mengirim pengingat ke ${sentCount} pekerja.${failedCount > 0 ? ` Gagal: ${failedCount} pekerja.` : ""}`;
+    if (!force) {
+      state.lastCronSentDate = todayYMD;
+    }
+    writeState(state);
+
+    return res.json({
+      success: true,
+      message: `Berhasil memproses cron pengingat. Terkirim: ${sentCount}, Gagal: ${failedCount}`,
+      errors
+    });
+  } else {
+    // Just a passive ping to keep server alive and update status
+    let statusMsg = "";
+    if (alreadySentToday) {
+      statusMsg = `Selesai: Pengingat hari ini (${todayYMD}) sudah dikirimkan otomatis pada jam ${scheduledTime}.`;
+    } else {
+      statusMsg = `Standby: Menunggu jam target ${scheduledTime}. Waktu server saat ini: ${nowStr} WIB.`;
+    }
+    state.lastCronStatus = statusMsg;
+    writeState(state);
+    return res.json({
+      success: true,
+      message: "Cron ping recorded successfully.",
+      time: nowStr,
+      target: scheduledTime,
+      status: statusMsg
+    });
+  }
+});
+
 // Vite Middleware for Development vs Production
 async function startServer() {
+  // Initialize WhatsApp connection
+  try {
+    console.log("Initializing server-side WhatsApp Baileys gateway...");
+    initWhatsApp();
+  } catch (err) {
+    console.error("Failed to automatically initialize Baileys WhatsApp connection:", err);
+  }
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

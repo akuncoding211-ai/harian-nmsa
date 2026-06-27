@@ -34,9 +34,33 @@ import {
   AlertTriangle,
   User,
   Camera,
-  CreditCard
+  CreditCard,
+  Pencil,
+  Image,
+  Folder,
+  LayoutDashboard,
+  BarChart3,
+  Clock,
+  Zap,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
 import { INITIAL_WORKERS, INDONESIAN_DAYS, COMMON_CATEGORIES } from "./constants";
 import { triggerExcelDownload } from "./lib/excelGenerator";
@@ -124,6 +148,15 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [attendanceLogs, setAttendanceLogs] = useState<any[]>(() => {
+    const saved = localStorage.getItem("attendance_logs_v1");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem("attendance_logs_v1", JSON.stringify(attendanceLogs));
+  }, [attendanceLogs]);
+
   const [pettyCashHolderFilter, setPettyCashHolderFilter] = useState<string>("ALL");
 
   const [pettyCashHolders, setPettyCashHolders] = useState<string[]>(() => {
@@ -143,9 +176,10 @@ export default function App() {
   const [editRole, setEditRole] = useState<string>("");
   const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [profileSaveMsg, setProfileSaveMsg] = useState<string>("");
+  const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [activeTab, setActiveTab] = useState<"absen" | "pettycash" | "workers">("absen");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "absen" | "pettycash" | "workers">("dashboard");
   const [globalAllowance, setGlobalAllowance] = useState<number>(() => {
     const saved = localStorage.getItem("global_allowance");
     return saved ? Number(saved) : 25000;
@@ -165,6 +199,7 @@ export default function App() {
   const [selfAttendStatus, setSelfAttendStatus] = useState<"idle" | "success" | "error">("idle");
   const [selfAttendMessage, setSelfAttendMessage] = useState<string>("");
   const [selfIsAttendedToday, setSelfIsAttendedToday] = useState<boolean>(false);
+  const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
   const [liveTime, setLiveTime] = useState<string>("");
 
   // Geolocation States for Workspace Verification
@@ -188,9 +223,90 @@ export default function App() {
   const [bulkViewMode, setBulkViewMode] = useState<"list" | "step">("list");
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(0);
 
+  // WhatsApp Auto-Reminder Settings (100% FREE Workflow Assistant)
+  const [autoReminderEnabled, setAutoReminderEnabled] = useState<boolean>(() => {
+    return localStorage.getItem("wa_auto_reminder_enabled") !== "false"; // default to true (enabled)
+  });
+  const [autoReminderHour, setAutoReminderHour] = useState<string>(() => {
+    return localStorage.getItem("wa_auto_reminder_hour") || "09:00";
+  });
+
+  // --- WhatsApp Baileys Bot State ---
+  const [waPanelMode, setWaPanelMode] = useState<"bot" | "manual">("bot");
+  const [waBotStatus, setWaBotStatus] = useState<string>("disconnected");
+  const [waBotQr, setWaBotQr] = useState<string | null>(null);
+  const [waBotUser, setWaBotUser] = useState<{ id: string; name?: string } | null>(null);
+  const [waBotError, setWaBotError] = useState<string | null>(null);
+  
+  // Link via phone/pairing code states
+  const [waConnectMethod, setWaConnectMethod] = useState<"qr" | "phone">("qr");
+  const [waPairingPhone, setWaPairingPhone] = useState<string>("");
+  const [waPairingCode, setWaPairingCode] = useState<string | null>(null);
+  const [waPairingLoading, setWaPairingLoading] = useState<boolean>(false);
+
+  
+  // Test message states
+  const [waTestPhone, setWaTestPhone] = useState<string>("");
+  const [waTestMessage, setWaTestMessage] = useState<string>("");
+  const [waTestSending, setWaTestSending] = useState<boolean>(false);
+  const [waTestResult, setWaTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+
+  // Cron states (saved in the database store on the server)
+  const [lastCronPing, setLastCronPing] = useState<string>("");
+  const [lastCronStatus, setLastCronStatus] = useState<string>("");
+  const [lastCronSentDate, setLastCronSentDate] = useState<string>("");
+  const [isCronRunning, setIsCronRunning] = useState<boolean>(false);
+
+  // --- Dashboard Collapsible/Dropdown Section States ---
+  const [isDashMetricsOpen, setIsDashMetricsOpen] = useState<boolean>(true);
+  const [isDashGpsOpen, setIsDashGpsOpen] = useState<boolean>(false);
+  const [isDashWaOpen, setIsDashWaOpen] = useState<boolean>(false);
+
+  // Periodically fetch WhatsApp Gateway status from Express backend
+  useEffect(() => {
+    let active = true;
+    const checkWaStatus = async () => {
+      try {
+        const res = await fetch("/api/wa/status");
+        if (res.ok && active) {
+          const data = await res.json();
+          setWaBotStatus(data.status);
+          setWaBotQr(data.qr);
+          setWaBotUser(data.user);
+          setWaBotError(data.error);
+        }
+      } catch (err) {
+        console.error("Error fetching WhatsApp status:", err);
+      }
+    };
+    
+    checkWaStatus(); // run immediately
+    const interval = setInterval(checkWaStatus, 5000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("wa_auto_reminder_enabled", autoReminderEnabled ? "true" : "false");
+  }, [autoReminderEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem("wa_auto_reminder_hour", autoReminderHour);
+  }, [autoReminderHour]);
+
   // Get selfWorkerId if present in URL query params
   const urlParams = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const selfWorkerId = urlParams.get("workerId") || urlParams.get("id");
+
+  // Automatically pre-fill the PIN if present in URL parameters
+  useEffect(() => {
+    const urlPin = urlParams.get("pin") || urlParams.get("code") || urlParams.get("pin_harian");
+    if (urlPin) {
+      setSelfInputPin(urlPin);
+    }
+  }, []);
 
   // --- Workspace Google Auth Simulation & Token ---
   // --- PWA Installation State ---
@@ -356,7 +472,10 @@ export default function App() {
     pettyRepList = pettyCashReports,
     pinVal = attendancePin,
     signaturesList = signatures,
-    holdersList = pettyCashHolders
+    holdersList = pettyCashHolders,
+    logsList = attendanceLogs,
+    methodVal = waMethod,
+    hourVal = autoReminderHour
   ) => {
     try {
       setServerSyncing(true);
@@ -373,6 +492,9 @@ export default function App() {
           attendancePin: pinVal,
           signatures: signaturesList,
           pettyCashHolders: holdersList,
+          attendanceLogs: logsList,
+          waMethod: methodVal,
+          autoReminderHour: hourVal,
         }),
       });
       if (res.ok) {
@@ -385,59 +507,104 @@ export default function App() {
     }
   };
 
+  // Reusable function to load shared state from server
+  const fetchSharedState = async (quiet = false) => {
+    try {
+      if (!quiet) setServerSyncing(true);
+      const res = await fetch("/api/shared-state");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.workers && data.workers.length > 0) {
+          setWorkers(data.workers);
+          if (data.attendanceRecords) setAttendanceRecords(data.attendanceRecords);
+          if (data.weeklyReports) setWeeklyReports(data.weeklyReports);
+          if (data.pettyCashReports) setPettyCashReports(data.pettyCashReports);
+          if (data.attendancePin) setAttendancePin(data.attendancePin);
+          if (data.signatures) setSignatures(data.signatures);
+          if (data.pettyCashHolders) setPettyCashHolders(data.pettyCashHolders);
+          if (data.attendanceLogs) setAttendanceLogs(data.attendanceLogs);
+          
+          if (data.waMethod) setWaMethod(data.waMethod);
+          if (data.autoReminderHour) setAutoReminderHour(data.autoReminderHour);
+          
+          if (data.lastCronPing !== undefined) setLastCronPing(data.lastCronPing);
+          if (data.lastCronStatus !== undefined) setLastCronStatus(data.lastCronStatus);
+          if (data.lastCronSentDate !== undefined) setLastCronSentDate(data.lastCronSentDate);
+          
+          setLastSynced(new Date().toLocaleTimeString("id-ID"));
+        } else if (!quiet) {
+          // Server has no data (first startup), sync our initial local storage data
+          await fetch("/api/shared-state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workers,
+              attendanceRecords,
+              weeklyReports,
+              pettyCashReports,
+              attendancePin,
+              signatures,
+              pettyCashHolders,
+              attendanceLogs,
+              waMethod,
+              autoReminderHour,
+            }),
+          });
+          setLastSynced(new Date().toLocaleTimeString("id-ID"));
+        }
+      }
+    } catch (err) {
+      console.error("Gagal memuat shared-state dari server:", err);
+    } finally {
+      if (!quiet) setServerSyncing(false);
+      setInitialFetchDone(true);
+    }
+  };
+
   // 1. Load shared state from server on mount
   useEffect(() => {
-    const fetchSharedState = async () => {
-      try {
-        setServerSyncing(true);
-        const res = await fetch("/api/shared-state");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.workers && data.workers.length > 0) {
-            setWorkers(data.workers);
-            if (data.attendanceRecords) setAttendanceRecords(data.attendanceRecords);
-            if (data.weeklyReports) setWeeklyReports(data.weeklyReports);
-            if (data.pettyCashReports) setPettyCashReports(data.pettyCashReports);
-            if (data.attendancePin) setAttendancePin(data.attendancePin);
-            if (data.signatures) setSignatures(data.signatures);
-            if (data.pettyCashHolders) setPettyCashHolders(data.pettyCashHolders);
-            setLastSynced(new Date().toLocaleTimeString("id-ID"));
-          } else {
-            // Server has no data (first startup), sync our initial local storage data
-            await fetch("/api/shared-state", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                workers,
-                attendanceRecords,
-                weeklyReports,
-                pettyCashReports,
-                attendancePin,
-                signatures,
-                pettyCashHolders,
-              }),
-            });
-            setLastSynced(new Date().toLocaleTimeString("id-ID"));
-          }
-        }
-      } catch (err) {
-        console.error("Gagal memuat shared-state dari server:", err);
-      } finally {
-        setServerSyncing(false);
-        setInitialFetchDone(true);
-      }
-    };
     fetchSharedState();
   }, []);
+
+  // 1b. Periodic quiet background sync (every 15 seconds) to get worker updates automatically
+  useEffect(() => {
+    if (!initialFetchDone) return;
+    const interval = setInterval(() => {
+      fetchSharedState(true);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [initialFetchDone]);
 
   // 2. Debounced auto-save to server when states change (only after initial load)
   useEffect(() => {
     if (!initialFetchDone) return;
     const timer = setTimeout(() => {
-      syncStateToServer(workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, signatures, pettyCashHolders);
+      syncStateToServer(
+        workers, 
+        attendanceRecords, 
+        weeklyReports, 
+        pettyCashReports, 
+        attendancePin, 
+        signatures, 
+        pettyCashHolders, 
+        attendanceLogs,
+        waMethod,
+        autoReminderHour
+      );
     }, 1200); // 1.2s debounce
     return () => clearTimeout(timer);
-  }, [workers, attendanceRecords, weeklyReports, pettyCashReports, attendancePin, pettyCashHolders, initialFetchDone]);
+  }, [
+    workers, 
+    attendanceRecords, 
+    weeklyReports, 
+    pettyCashReports, 
+    attendancePin, 
+    pettyCashHolders, 
+    attendanceLogs, 
+    waMethod, 
+    autoReminderHour, 
+    initialFetchDone
+  ]);
 
   // 3. Worker self-attendance handlers
   useEffect(() => {
@@ -578,6 +745,7 @@ export default function App() {
         setSelfAttendStatus("success");
         setSelfAttendMessage(data.message);
         setSelfIsAttendedToday(true);
+        setShowSuccessModal(true);
 
         // Update signatures state locally if provided
         if (isFriday && selfSignature) {
@@ -1138,6 +1306,98 @@ export default function App() {
     setWeeklyReports(weeklyReports.filter((r) => r.id !== reportId));
   };
 
+  // --- WhatsApp Baileys Controller Handlers ---
+  const handleRequestWaPairingCode = async () => {
+    if (!waPairingPhone) {
+      alert("Silakan masukkan nomor WhatsApp Anda terlebih dahulu.");
+      return;
+    }
+    setWaPairingLoading(true);
+    setWaPairingCode(null);
+    try {
+      const res = await fetch("/api/wa/pairing-code", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: waPairingPhone }),
+      });
+      const data = await res.json();
+      if (res.ok && data.code) {
+        setWaPairingCode(data.code);
+      } else {
+        alert("Gagal membuat Kode Pairing: " + (data.error || "Kesalahan server"));
+      }
+    } catch (err: any) {
+      console.error("Failed to request pairing code:", err);
+      alert("Kesalahan jaringan saat meminta kode pairing.");
+    } finally {
+      setWaPairingLoading(false);
+    }
+  };
+
+  const handleDisconnectWa = async () => {
+    if (!window.confirm("Apakah Anda yakin ingin memutuskan koneksi WhatsApp? Sesi Anda akan dihapus dan Anda harus melakukan scan QR code kembali.")) return;
+    try {
+      const res = await fetch("/api/wa/disconnect", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setWaBotStatus("disconnected");
+        setWaBotQr(null);
+        setWaBotUser(null);
+        alert("Berhasil memutuskan koneksi WhatsApp. QR Code baru sedang disiapkan, mohon tunggu beberapa detik...");
+      } else {
+        alert("Gagal memutuskan koneksi WhatsApp: " + (data.error || "Kesalahan server"));
+      }
+    } catch (err: any) {
+      console.error("Failed to disconnect WhatsApp:", err);
+      alert("Kesalahan jaringan saat memutuskan koneksi.");
+    }
+  };
+
+  const handleSendWaTest = async () => {
+    if (!waTestPhone || !waTestMessage) {
+      setWaTestResult({ success: false, msg: "Nomor penerima dan isi pesan wajib diisi!" });
+      return;
+    }
+    setWaTestSending(true);
+    setWaTestResult(null);
+    try {
+      const res = await fetch("/api/wa/send-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: waTestPhone, message: waTestMessage }),
+      });
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        setWaTestResult({ success: true, msg: "Pesan uji coba berhasil dikirim!" });
+        setWaTestMessage("");
+      } else {
+        setWaTestResult({ success: false, msg: data.error || "Gagal mengirim pesan uji coba." });
+      }
+    } catch (err: any) {
+      setWaTestResult({ success: false, msg: err.message || "Kesalahan koneksi jaringan." });
+    } finally {
+      setWaTestSending(false);
+    }
+  };
+
+  const handleTriggerCronManual = async () => {
+    setIsCronRunning(true);
+    try {
+      const res = await fetch("/api/cron-reminder?force=true");
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || "Berhasil memproses pengingat harian!");
+        fetchSharedState(true); // refresh telemetry immediately
+      } else {
+        alert(`Gagal memproses: ${data.message || "Kesalahan tidak dikenal."}`);
+      }
+    } catch (err: any) {
+      alert(`Kesalahan jaringan: ${err.message || err}`);
+    } finally {
+      setIsCronRunning(false);
+    }
+  };
+
   // --- Google Connect Actions (Real Firebase Google Auth) ---
   const handleConnectGoogleReal = async () => {
     try {
@@ -1279,200 +1539,331 @@ export default function App() {
             >
               {/* Profile Card & Self Profiling Form */}
               <div className="bg-slate-800/80 backdrop-blur-md border border-slate-700/60 rounded-2xl p-5 shadow-xl space-y-4">
-                <div className="flex items-start gap-4">
-                  {editPhotoUrl ? (
-                    <img
-                      src={editPhotoUrl}
-                      alt={selfWorker.name}
-                      className="w-16 h-16 object-cover rounded-full border border-indigo-500/50 shadow-md shadow-indigo-500/10 shrink-0"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 bg-indigo-500/20 text-indigo-300 rounded-full flex items-center justify-center font-bold font-display text-2xl border border-indigo-500/30 shrink-0 shadow-inner">
-                      {selfWorker.name.charAt(0)}
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest font-mono">Pekerja Terverifikasi</span>
-                    <h2 className="text-lg font-bold text-white leading-tight mt-0.5">{selfWorker.name}</h2>
-                    <p className="text-xs text-slate-300 font-medium mt-1">{selfWorker.role}</p>
-                    {selfWorker.nik && (
-                      <p className="text-[10px] text-slate-500 font-mono mt-0.5">NIK: {selfWorker.nik}</p>
-                    )}
+                <div className="flex items-center justify-between border-b border-slate-700/50 pb-3">
+                  <div className="flex items-center gap-1.5">
+                    <User className="w-4 h-4 text-indigo-400" />
+                    <span className="text-[11px] font-bold text-indigo-400 uppercase tracking-widest font-mono">
+                      {isEditingProfile ? "Edit Data Anda" : "Data Diri Pekerja"}
+                    </span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingProfile(!isEditingProfile);
+                      setProfileSaveMsg("");
+                      setProfileSaveStatus("idle");
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-200 hover:text-white transition duration-150 text-[10px] font-bold cursor-pointer"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    <span>{isEditingProfile ? "Batal" : "Edit"}</span>
+                  </button>
                 </div>
 
-                <div className="border-t border-slate-700/50 pt-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-indigo-400" />
-                      <span>Lengkapi / Perbarui Data Anda:</span>
-                    </span>
-                    <span className="text-[9px] text-indigo-400 font-mono">Opsional / Simpan data Anda</span>
-                  </div>
+                {!isEditingProfile ? (
+                  /* READ-ONLY VIEW */
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4">
+                      {selfWorker.photoUrl ? (
+                        <img
+                          src={selfWorker.photoUrl}
+                          alt={selfWorker.name}
+                          className="w-20 h-20 object-cover rounded-full border-2 border-indigo-500/40 shadow-md shadow-indigo-500/10 shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-20 h-20 bg-indigo-500/20 text-indigo-300 rounded-full flex items-center justify-center font-bold font-display text-3xl border border-indigo-500/30 shrink-0 shadow-inner">
+                          {selfWorker.name.charAt(0)}
+                        </div>
+                      )}
+                      <div className="space-y-1">
+                        <span className="text-[9px] bg-indigo-600/20 border border-indigo-500/30 text-indigo-300 px-2 py-0.5 rounded font-mono uppercase font-bold tracking-wider">
+                          Terverifikasi
+                        </span>
+                        <h2 className="text-lg font-bold text-white leading-tight mt-1">{selfWorker.name}</h2>
+                        <p className="text-xs text-slate-300 font-medium">{selfWorker.role}</p>
+                      </div>
+                    </div>
 
-                  <div className="space-y-3 text-xs">
-                    {/* Profil Photo Selector */}
-                    <div className="bg-slate-900/40 p-2.5 rounded-xl border border-slate-850">
-                      <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1.5 flex items-center gap-1">
-                        <Camera className="w-3 h-3 text-slate-400" />
-                        <span>Foto Profil Mandiri</span>
-                      </label>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="user"
-                        onChange={async (e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            try {
-                              const base64 = await toBase64(e.target.files[0]);
-                              setEditPhotoUrl(base64);
-                            } catch (err) {
-                              console.error("Gagal membaca foto", err);
+                    <div className="grid grid-cols-2 gap-2.5 text-xs pt-1">
+                      <div className="bg-slate-900/30 p-2.5 rounded-xl border border-slate-750/50">
+                        <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">NIK KTP</span>
+                        <span className="font-mono text-slate-200 font-semibold">{selfWorker.nik || "Belum diisi"}</span>
+                      </div>
+                      <div className="bg-slate-900/30 p-2.5 rounded-xl border border-slate-750/50">
+                        <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">No. WhatsApp</span>
+                        <span className="font-mono text-slate-200 font-semibold">{selfWorker.phoneNumber || "Belum diisi"}</span>
+                      </div>
+                      <div className="bg-slate-900/30 p-2.5 rounded-xl border border-slate-750/50">
+                        <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Nama Bank</span>
+                        <span className="text-slate-200 font-bold uppercase">{selfWorker.bankName || "Belum diisi"}</span>
+                      </div>
+                      <div className="bg-slate-900/30 p-2.5 rounded-xl border border-slate-750/50">
+                        <span className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Nomor Rekening</span>
+                        <span className="font-mono text-slate-200 font-semibold">{selfWorker.bankAccount || "Belum diisi"}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* EDITING FORM VIEW */
+                  <div className="space-y-4">
+                    <div className="space-y-3 text-xs">
+                      {/* Profil Photo Selector with explicit options requested */}
+                      <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750/70 space-y-2.5">
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                          <Camera className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Pilih Foto Profil Anda</span>
+                        </label>
+                        
+                        <div className="grid grid-cols-3 gap-2">
+                          {/* Kamera Langsung */}
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById("camera-photo-input")?.click()}
+                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-indigo-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
+                          >
+                            <Camera className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition duration-150 mb-1" />
+                            <span className="text-[9px] font-bold">Kamera HP</span>
+                            <span className="text-[7px] text-slate-500">Ambil foto</span>
+                          </button>
+                          
+                          {/* Galeri Media */}
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById("gallery-photo-input")?.click()}
+                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-emerald-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
+                          >
+                            <Image className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition duration-150 mb-1" />
+                            <span className="text-[9px] font-bold">Galeri Foto</span>
+                            <span className="text-[7px] text-slate-500">Dari Galeri</span>
+                          </button>
+
+                          {/* Folder / Penyimpanan HP */}
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById("device-photo-input")?.click()}
+                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-amber-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
+                          >
+                            <Folder className="w-4 h-4 text-amber-400 group-hover:scale-110 transition duration-150 mb-1" />
+                            <span className="text-[9px] font-bold">Pilih File</span>
+                            <span className="text-[7px] text-slate-500">Penyimpanan</span>
+                          </button>
+                        </div>
+
+                        {/* Hidden native input elements for the 3 selection modes */}
+                        <input
+                          type="file"
+                          id="camera-photo-input"
+                          accept="image/*"
+                          capture="user"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              try {
+                                const base64 = await toBase64(e.target.files[0]);
+                                setEditPhotoUrl(base64);
+                              } catch (err) {
+                                console.error("Gagal membaca foto", err);
+                              }
                             }
+                          }}
+                        />
+                        <input
+                          type="file"
+                          id="gallery-photo-input"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              try {
+                                const base64 = await toBase64(e.target.files[0]);
+                                setEditPhotoUrl(base64);
+                              } catch (err) {
+                                console.error("Gagal membaca foto", err);
+                              }
+                            }
+                          }}
+                        />
+                        <input
+                          type="file"
+                          id="device-photo-input"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              try {
+                                const base64 = await toBase64(e.target.files[0]);
+                                setEditPhotoUrl(base64);
+                              } catch (err) {
+                                console.error("Gagal membaca foto", err);
+                              }
+                            }
+                          }}
+                        />
+
+                        {editPhotoUrl && (
+                          <div className="flex items-center gap-3 bg-indigo-500/10 p-2 rounded-lg border border-indigo-500/20 mt-1">
+                            <img
+                              src={editPhotoUrl}
+                              alt="Preview"
+                              className="w-10 h-10 object-cover rounded-full border border-indigo-500/30"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[9px] text-slate-300 font-medium">Pratinjau Foto Baru</p>
+                              <span className="text-[8px] text-indigo-400 font-mono">Siap disimpan</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditPhotoUrl("")}
+                              className="text-[9px] text-rose-400 hover:text-rose-300 font-bold px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 rounded-md transition"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1">
+                            <CreditCard className="w-3 h-3 text-slate-400" />
+                            <span>Nama Bank</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="BCA, Mandiri, BRI..."
+                            value={editBankName}
+                            onChange={(e) => setEditBankName(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 uppercase text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1">
+                            <CreditCard className="w-3 h-3 text-slate-400" />
+                            <span>No. Rekening</span>
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="Nomor Rekening"
+                            value={editBankAccount}
+                            onChange={(e) => setEditBankAccount(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">NIK KTP</label>
+                          <input
+                            type="text"
+                            placeholder="Nomor NIK KTP"
+                            value={editNik}
+                            onChange={(e) => setEditNik(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">No. WhatsApp</label>
+                          <input
+                            type="text"
+                            placeholder="Contoh: 0812xxxxx"
+                            value={editPhoneNumber}
+                            onChange={(e) => setEditPhoneNumber(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nama Lengkap</label>
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold text-xs"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Jabatan / Peran</label>
+                          <input
+                            type="text"
+                            value={editRole}
+                            onChange={(e) => setEditRole(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            setProfileSaveStatus("saving");
+                            setProfileSaveMsg("");
+                            const response = await fetch("/api/update-worker-profile", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                workerId: selfWorker.id,
+                                bankName: editBankName,
+                                bankAccount: editBankAccount,
+                                phoneNumber: editPhoneNumber,
+                                nik: editNik,
+                                photoUrl: editPhotoUrl,
+                                name: editName,
+                                role: editRole,
+                              }),
+                            });
+                            const result = await response.json();
+                            if (response.ok) {
+                              setProfileSaveStatus("success");
+                              setProfileSaveMsg(result.message);
+                              setSelfWorker(result.worker);
+                              // Also update the global workers state to sync immediately
+                              setWorkers(workers.map(w => w.id === selfWorker.id ? result.worker : w));
+                              // Automatically switch back to read-only view on successful save!
+                              setTimeout(() => {
+                                setIsEditingProfile(false);
+                              }, 1200);
+                            } else {
+                              setProfileSaveStatus("error");
+                              setProfileSaveMsg(result.error || "Gagal memperbarui profil.");
+                            }
+                          } catch (err: any) {
+                            setProfileSaveStatus("error");
+                            setProfileSaveMsg(err.message || "Kesalahan jaringan.");
                           }
                         }}
-                        className="w-full text-slate-400 text-xs file:mr-2 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[10px] file:font-semibold file:bg-indigo-600/30 file:text-indigo-200 file:hover:bg-indigo-600/40 cursor-pointer"
-                      />
-                    </div>
+                        disabled={profileSaveStatus === "saving"}
+                        className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-bold py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/15"
+                      >
+                        {profileSaveStatus === "saving" ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Menyimpan Profil...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Simpan Perubahan Profil</span>
+                          </>
+                        )}
+                      </button>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1">
-                          <CreditCard className="w-3 h-3 text-slate-400" />
-                          <span>Nama Bank</span>
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="BCA, Mandiri, BRI..."
-                          value={editBankName}
-                          onChange={(e) => setEditBankName(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-bold focus:outline-none focus:ring-1 focus:ring-indigo-500 uppercase text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1 flex items-center gap-1">
-                          <CreditCard className="w-3 h-3 text-slate-400" />
-                          <span>No. Rekening</span>
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Nomor Rekening"
-                          value={editBankAccount}
-                          onChange={(e) => setEditBankAccount(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">NIK KTP</label>
-                        <input
-                          type="text"
-                          placeholder="Nomor NIK KTP"
-                          value={editNik}
-                          onChange={(e) => setEditNik(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">No. WhatsApp</label>
-                        <input
-                          type="text"
-                          placeholder="Contoh: 0812xxxxx"
-                          value={editPhoneNumber}
-                          onChange={(e) => setEditPhoneNumber(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <div>
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nama Lengkap</label>
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold text-xs"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Jabatan / Peran</label>
-                        <input
-                          type="text"
-                          value={editRole}
-                          onChange={(e) => setEditRole(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-2.5 py-1.5 text-white placeholder-slate-600 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs"
-                        />
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          setProfileSaveStatus("saving");
-                          setProfileSaveMsg("");
-                          const response = await fetch("/api/update-worker-profile", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              workerId: selfWorker.id,
-                              bankName: editBankName,
-                              bankAccount: editBankAccount,
-                              phoneNumber: editPhoneNumber,
-                              nik: editNik,
-                              photoUrl: editPhotoUrl,
-                              name: editName,
-                              role: editRole,
-                            }),
-                          });
-                          const result = await response.json();
-                          if (response.ok) {
-                            setProfileSaveStatus("success");
-                            setProfileSaveMsg(result.message);
-                            setSelfWorker(result.worker);
-                            // Also update the global workers state to sync immediately
-                            setWorkers(workers.map(w => w.id === selfWorker.id ? result.worker : w));
-                          } else {
-                            setProfileSaveStatus("error");
-                            setProfileSaveMsg(result.error || "Gagal memperbarui profil.");
-                          }
-                        } catch (err: any) {
-                          setProfileSaveStatus("error");
-                          setProfileSaveMsg(err.message || "Kesalahan jaringan.");
-                        }
-                      }}
-                      disabled={profileSaveStatus === "saving"}
-                      className="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-bold py-2.5 rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/15"
-                    >
-                      {profileSaveStatus === "saving" ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Menyimpan Profil...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Simpan Perubahan Profil</span>
-                        </>
+                      {profileSaveMsg && (
+                        <div className={`mt-2 p-2.5 rounded-xl text-[11px] font-medium text-center ${
+                          profileSaveStatus === "success" 
+                            ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400" 
+                            : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                        }`}>
+                          {profileSaveMsg}
+                        </div>
                       )}
-                    </button>
-
-                    {profileSaveMsg && (
-                      <div className={`mt-2 p-2.5 rounded-xl text-[11px] font-medium text-center ${
-                        profileSaveStatus === "success" 
-                          ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400" 
-                          : "bg-rose-500/10 border border-rose-500/20 text-rose-400"
-                      }`}>
-                        {profileSaveMsg}
-                      </div>
-                    )}
-
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Date Time Display */}
@@ -1605,24 +1996,19 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* SIGNATURE / PARAF SECTION */}
+                    {/* SIGNATURE / PARAF SECTION (Hanya muncul di Hari Jumat) */}
                     {(() => {
                       const isFriday = new Date().getDay() === 5;
+                      if (!isFriday) return null;
                       return (
                         <div className="max-w-xs mx-auto space-y-2 text-left border-t border-slate-700/40 pt-4">
                           <div className="flex items-center justify-between">
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                               Paraf Online / Tanda Tangan
                             </label>
-                            {isFriday ? (
-                              <span className="text-[9px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider animate-pulse">
-                                Wajib (Hari Jumat)
-                              </span>
-                            ) : (
-                              <span className="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-bold uppercase tracking-wider">
-                                Opsional
-                              </span>
-                            )}
+                            <span className="text-[9px] bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider animate-pulse">
+                              Wajib (Hari Jumat)
+                            </span>
                           </div>
                           
                           <SignaturePad 
@@ -1753,6 +2139,57 @@ export default function App() {
           <p>© 2026 PT. Nusantara Mineral Sukses Abadi. All Rights Reserved.</p>
           <p>Aplikasi Rekap Allowance-Meal &bull; Presensi Digital Lapangan</p>
         </footer>
+
+        <AnimatePresence>
+          {showSuccessModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowSuccessModal(false)}
+                className="absolute inset-0 bg-slate-950/85 backdrop-blur-md"
+              />
+
+              {/* Modal Card */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                transition={{ type: "spring", duration: 0.5 }}
+                className="bg-slate-900 border border-slate-750/70 rounded-3xl p-6 max-w-sm w-full text-center relative overflow-hidden shadow-2xl z-10"
+              >
+                {/* Visual confetti / burst accent background */}
+                <div className="absolute -top-12 -left-12 w-24 h-24 bg-emerald-500/20 rounded-full blur-2xl pointer-events-none"></div>
+                <div className="absolute -bottom-12 -right-12 w-24 h-24 bg-indigo-500/20 rounded-full blur-2xl pointer-events-none"></div>
+
+                <div className="w-16 h-16 bg-gradient-to-tr from-emerald-400 to-emerald-600 text-white rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-emerald-500/20 mb-4 animate-bounce">
+                  <Check className="w-8 h-8" />
+                </div>
+
+                <h3 className="text-xl font-bold text-white tracking-tight">Presensi Berhasil! 🎉</h3>
+                
+                <div className="mt-3 space-y-2">
+                  <p className="text-sm text-slate-200">
+                    Terima kasih, <strong className="text-emerald-400">{selfWorker?.name}</strong>, absensi Anda hari ini sudah berhasil tercatat dengan aman.
+                  </p>
+                  <p className="text-xs text-slate-400 leading-relaxed bg-slate-950/40 p-3 rounded-2xl border border-slate-800 text-center">
+                    Jangan lupa untuk absen lagi besok yaaa.. Semangat terus kerjanya, utamakan keselamatan kerja, dan semoga hari Anda luar biasa menyenangkan! 😄👷‍♂️☀️👍🏼
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowSuccessModal(false)}
+                  className="w-full mt-5 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-bold text-xs py-3 rounded-xl transition cursor-pointer shadow-md shadow-emerald-950"
+                >
+                  Selesai & Tutup 👍
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </div>
     );
   }
@@ -1791,6 +2228,67 @@ export default function App() {
     combinedExpense += report.summary?.totalExpense || 0;
     combinedBalance += report.summary?.remainingBalance || 0;
   });
+
+  // --- Dashboard / Analytics Calculations ---
+  const activeWorkersCount = workers.filter(w => w.isActive).length;
+  const totalWorkersCount = workers.length;
+  
+  // Calculate combined stats for ALL petty cash reports
+  let totalAllIncome = 0;
+  let totalAllExpense = 0;
+  pettyCashReports.forEach(report => {
+    totalAllIncome += report.summary?.totalIncome || 0;
+    totalAllExpense += report.summary?.totalExpense || 0;
+  });
+  const totalAllBalance = totalAllIncome - totalAllExpense;
+
+  // Group petty cash transactions across all reports for Recharts charts
+  const categoryTotals: { [cat: string]: number } = {};
+  const monthlyExpenseData: { [month: string]: { income: number; expense: number } } = {};
+
+  pettyCashReports.forEach(report => {
+    const month = report.summary?.reportMonth || "Lainnya";
+    if (!monthlyExpenseData[month]) {
+      monthlyExpenseData[month] = { income: 0, expense: 0 };
+    }
+    monthlyExpenseData[month].income += report.summary?.totalIncome || 0;
+    monthlyExpenseData[month].expense += report.summary?.totalExpense || 0;
+
+    if (report.transactions) {
+      report.transactions.forEach(t => {
+        if (t.type === TransactionType.EXPENSE || t.type === "EXPENSE") {
+          const cat = t.category || "Umum";
+          categoryTotals[cat] = (categoryTotals[cat] || 0) + t.amount;
+        }
+      });
+    }
+  });
+
+  const chartCategoryData = Object.entries(categoryTotals)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 7); // top 7 categories
+
+  const chartMonthlyData = Object.entries(monthlyExpenseData).map(([month, data]) => ({
+    month,
+    income: data.income,
+    expense: data.expense,
+  }));
+
+  // Average attendance rate
+  let totalPossibleSlots = 0;
+  let totalPresentSlots = 0;
+  attendanceRecords.forEach(r => {
+    if (r.attendance) {
+      Object.values(r.attendance).forEach(val => {
+        totalPossibleSlots++;
+        if (val === true) {
+          totalPresentSlots++;
+        }
+      });
+    }
+  });
+  const averageAttendanceRate = totalPossibleSlots > 0 ? Math.round((totalPresentSlots / totalPossibleSlots) * 100) : 0;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col selection:bg-indigo-500 selection:text-white" id="main_container">
@@ -1853,6 +2351,18 @@ export default function App() {
             {/* QUICK TAB SWITCHER */}
             <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
               <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition duration-150 cursor-pointer ${
+                  activeTab === "dashboard"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Ringkasan & Analitik</span>
+              </button>
+
+              <button
                 onClick={() => setActiveTab("absen")}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition duration-150 cursor-pointer ${
                   activeTab === "absen"
@@ -1860,7 +2370,7 @@ export default function App() {
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                <Calendar className="w-3.5 h-3.5" />
+                <Calendar className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Absen Uang Makan</span>
               </button>
               
@@ -1872,7 +2382,7 @@ export default function App() {
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                <FileText className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5 text-blue-600" />
                 <span>Petty Cash PDF Parser</span>
               </button>
 
@@ -1884,7 +2394,7 @@ export default function App() {
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                <Users className="w-3.5 h-3.5" />
+                <Users className="w-3.5 h-3.5 text-amber-600" />
                 <span>Kelola Pekerja</span>
               </button>
             </div>
@@ -1971,6 +2481,1041 @@ export default function App() {
       {/* WORKSPACE AREA */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full" id="workspace_main">
         
+        {/* TAB 0: BERANDA & ANALITIK UTAMA */}
+        {activeTab === "dashboard" && (
+          <div className="space-y-8" id="dashboard_tab_view">
+            {/* INTRO HERO BANNER */}
+            <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-indigo-950 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(99,102,241,0.15),transparent)] pointer-events-none"></div>
+              <div className="space-y-2 relative z-10">
+                <div className="inline-flex items-center gap-1.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider">
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  <span>Dashboard Analitik & Anti-Fraud</span>
+                </div>
+                <h2 className="text-xl md:text-2xl font-bold font-display tracking-tight">Selamat Datang di Portal Manajemen Mandor</h2>
+                <p className="text-xs md:text-sm text-slate-300 max-w-xl leading-relaxed">
+                  Monitor seluruh kehadiran pekerja lapangan, koordinasi GPS anti-fraud secara real-time, serta pantau laporan keuangan petty cash PT. Nusantara Mineral Sukses Abadi secara otomatis di sini.
+                </p>
+              </div>
+              <div className="relative z-10 flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => fetchSharedState()}
+                  className="flex items-center justify-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl px-4 py-2.5 text-xs font-semibold transition"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${serverSyncing ? "animate-spin" : ""}`} />
+                  <span>Refresh Data</span>
+                </button>
+              </div>
+            </div>
+
+            {/* ACCORDION CONTROLLERS */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-50/95 border border-slate-200/80 p-4 rounded-2xl shadow-xs text-left">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <LayoutDashboard className="w-4 h-4 text-indigo-600" />
+                  <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Navigasi Modul Dashboard</span>
+                </div>
+                <p className="text-[11px] text-slate-500">Klik pada judul modul di bawah untuk membuka/menutup ringkasan yang Anda butuhkan agar halaman tidak terlalu panjang.</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDashMetricsOpen(true);
+                    setIsDashGpsOpen(true);
+                    setIsDashWaOpen(true);
+                  }}
+                  className="bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 font-bold text-[10px] px-2.5 py-1.5 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1"
+                >
+                  <span>📂 Buka Semua</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDashMetricsOpen(false);
+                    setIsDashGpsOpen(false);
+                    setIsDashWaOpen(false);
+                  }}
+                  className="bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 font-bold text-[10px] px-2.5 py-1.5 rounded-xl transition shadow-xs cursor-pointer flex items-center gap-1"
+                >
+                  <span>📁 Tutup Semua</span>
+                </button>
+              </div>
+            </div>
+
+            {/* SECTION 1: METRICS & CHARTS (ACCORDION STYLE) */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" id="dash_section_metrics">
+              <button
+                type="button"
+                onClick={() => setIsDashMetricsOpen(!isDashMetricsOpen)}
+                className="w-full flex items-center justify-between p-4 bg-slate-50/70 hover:bg-slate-100/70 transition text-left focus:outline-none border-b border-slate-150"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+                    <BarChart3 className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span>1. Statistik Utama & Tren Arus Kas</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                        Pekerja & Keuangan
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Pantau jumlah tenaga kerja, sisa kas, pengeluaran, dan grafik arus kas.</p>
+                  </div>
+                </div>
+                <div className="text-slate-400">
+                  {isDashMetricsOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </div>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isDashMetricsOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden bg-white p-5 space-y-6"
+                  >
+                    {/* BENTO GRID: KEY METRICS */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              
+              {/* Metric 1 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Tenaga Kerja Aktif</span>
+                  <div className="p-2.5 bg-amber-50 rounded-xl text-amber-600">
+                    <Users className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-black text-slate-900 tracking-tight">{activeWorkersCount} <span className="text-xs text-slate-500 font-medium">dari {totalWorkersCount}</span></div>
+                  <p className="text-[11px] text-slate-500 mt-1">Status pekerja lapangan aktif saat ini</p>
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
+                    <div 
+                      className="bg-amber-500 h-1.5 rounded-full" 
+                      style={{ width: `${totalWorkersCount > 0 ? (activeWorkersCount / totalWorkersCount) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 2 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Kas Kecil</span>
+                  <div className="p-2.5 bg-indigo-50 rounded-xl text-indigo-600">
+                    <DollarSign className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-black text-slate-900 tracking-tight">
+                    Rp {totalAllBalance.toLocaleString("id-ID")}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Sisa saldo gabungan seluruh laporan</p>
+                  <div className="flex items-center gap-2 mt-3 text-[10px] font-semibold text-slate-500">
+                    <span className="text-emerald-600">In: Rp {totalAllIncome.toLocaleString("id-ID")}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 3 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Rata-rata Kehadiran</span>
+                  <div className="p-2.5 bg-emerald-50 rounded-xl text-emerald-600">
+                    <CheckSquare className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-black text-slate-900 tracking-tight">
+                    {averageAttendanceRate}%
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Tingkat kehadiran kumulatif mingguan</p>
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
+                    <div 
+                      className="bg-emerald-500 h-1.5 rounded-full" 
+                      style={{ width: `${averageAttendanceRate}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 4 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pengeluaran Petty Cash</span>
+                  <div className="p-2.5 bg-rose-50 rounded-xl text-rose-600">
+                    <TrendingDown className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="text-2xl font-black text-slate-900 tracking-tight">
+                    Rp {totalAllExpense.toLocaleString("id-ID")}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Akumulasi pengeluaran operasional</p>
+                  <div className="flex items-center gap-1.5 mt-3 text-[10px] text-rose-600 font-semibold">
+                    <span>Terbuang dari total pemasukan</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* CHARTS CONTAINER: ANALYTICS VISUALIZATION */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              
+              {/* Chart 1: Cash Flow Area Chart */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Tren Keuangan Bulanan (Arus Kas)</h3>
+                    <p className="text-xs text-slate-500">Pemasukan vs Pengeluaran Petty Cash</p>
+                  </div>
+                  <BarChart3 className="w-4 h-4 text-slate-400" />
+                </div>
+                <div className="h-64">
+                  {chartMonthlyData.length === 0 ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs text-center">
+                      <p>Belum ada data bulanan dari PDF petty cash.</p>
+                      <button onClick={() => setActiveTab("pettycash")} className="text-indigo-600 font-bold hover:underline mt-1">Unggah PDF Petty Cash &rarr;</button>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartMonthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="colorIncome" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="#f43f5e" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="month" stroke="#94a3b8" fontSize={10} tickLine={false} />
+                        <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `Rp ${val / 1000000}M`} />
+                        <Tooltip 
+                          formatter={(value: any) => [`Rp ${Number(value).toLocaleString("id-ID")}`, ""]}
+                          contentStyle={{ background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0" }}
+                        />
+                        <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "10px" }} />
+                        <Area type="monotone" name="Pemasukan" dataKey="income" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#colorIncome)" />
+                        <Area type="monotone" name="Pengeluaran" dataKey="expense" stroke="#f43f5e" strokeWidth={2} fillOpacity={1} fill="url(#colorExpense)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+
+              {/* Chart 2: Expense Categories Bar Chart */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Top Pengeluaran Berdasarkan Kategori</h3>
+                    <p className="text-xs text-slate-500">Distribusi biaya operasional teratas</p>
+                  </div>
+                  <TrendingDown className="w-4 h-4 text-slate-400" />
+                </div>
+                <div className="h-64">
+                  {chartCategoryData.length === 0 ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs text-center">
+                      <p>Belum ada data pengeluaran terdeteksi.</p>
+                      <button onClick={() => setActiveTab("pettycash")} className="text-indigo-600 font-bold hover:underline mt-1">Unggah PDF Petty Cash &rarr;</button>
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartCategoryData} layout="vertical" margin={{ top: 5, right: 5, left: 15, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                        <XAxis type="number" stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(val) => `Rp ${val/1000}k`} />
+                        <YAxis type="category" dataKey="name" stroke="#64748b" fontSize={9} tickLine={false} width={80} />
+                        <Tooltip 
+                          formatter={(value: any) => [`Rp ${Number(value).toLocaleString("id-ID")}`, "Biaya"]}
+                          contentStyle={{ background: "#ffffff", borderRadius: "12px", border: "1px solid #e2e8f0" }}
+                        />
+                        <Bar dataKey="value" name="Total Biaya" fill="#6366f1" radius={[0, 4, 4, 0]} maxBarSize={18}>
+                          {chartCategoryData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={index === 0 ? "#4f46e5" : index === 1 ? "#6366f1" : index === 2 ? "#818cf8" : "#a5b4fc"} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+
+            </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* SECTION 2: ANTI-FRAUD PORTAL - GPS LOGS (ACCORDION STYLE) */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" id="dash_section_gps">
+              <button
+                type="button"
+                onClick={() => setIsDashGpsOpen(!isDashGpsOpen)}
+                className="w-full flex items-center justify-between p-4 bg-slate-50/70 hover:bg-slate-100/70 transition text-left focus:outline-none border-b border-slate-150"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+                    <MapPin className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span>2. Portal Verifikasi Geolocation & GPS</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                        Anti-Fraud ({attendanceLogs.length} Log)
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Sistem memverifikasi jarak pekerja &lt; 150m dari kantor/site untuk mencegah absensi fiktif.</p>
+                  </div>
+                </div>
+                <div className="text-slate-400">
+                  {isDashGpsOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </div>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isDashGpsOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden bg-white"
+                  >
+                    <div className="p-4 bg-slate-50 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 text-left text-xs">
+                      <div className="text-[11px] bg-slate-100 border border-slate-200 text-slate-600 px-3 py-1.5 rounded-xl font-medium w-fit">
+                        Titik Kantor: <b className="text-slate-800">-6.244342, 106.843073</b> (Jangkauan Maks: <b>150m</b>)
+                      </div>
+                    </div>
+
+              {attendanceLogs.length === 0 ? (
+                <div className="p-10 text-center flex flex-col items-center justify-center text-slate-500">
+                  <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-3">
+                    <MapPin className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-slate-700">Belum Ada Log Presensi Real-Time</h4>
+                  <p className="text-xs text-slate-400 mt-1 max-w-md leading-relaxed">
+                    Setiap pekerja melakukan absensi mandiri, sistem browser mereka akan mendeteksi GPS koordinat dan mencatat alamat fisik riil secara otomatis menggunakan reverse geocoding open-source gratis.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] tracking-wider border-b border-slate-100">
+                        <th className="py-3.5 px-5">Pekerja</th>
+                        <th className="py-3.5 px-4">Tanggal & Waktu</th>
+                        <th className="py-3.5 px-4">Akurasi GPS / Koordinat</th>
+                        <th className="py-3.5 px-4">Estimasi Jarak</th>
+                        <th className="py-3.5 px-4">Alamat Riil Terverifikasi (OSM)</th>
+                        <th className="py-3.5 px-4">Status Absen</th>
+                        <th className="py-3.5 px-5 text-right">Verifikasi Peta</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                      {attendanceLogs.map((log: any) => {
+                        const isSuccess = log.status === "BERHASIL";
+                        const isPinError = log.status === "DITOLAK_PIN";
+                        const isLocError = log.status === "DITOLAK_LOKASI";
+                        
+                        return (
+                          <tr key={log.id} className="hover:bg-slate-50 transition">
+                            <td className="py-3.5 px-5">
+                              <div>
+                                <div className="font-bold text-slate-900">{log.workerName}</div>
+                                <div className="text-[10px] text-slate-500 font-semibold">{log.workerId}</div>
+                              </div>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              <div className="text-slate-800">{log.date}</div>
+                              <div className="text-[10px] text-slate-500 font-semibold">{log.time}</div>
+                            </td>
+                            <td className="py-3.5 px-4 text-slate-600">
+                              <div className="font-mono text-[11px]">{log.latitude.toFixed(6)}, {log.longitude.toFixed(6)}</div>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              {log.distance <= 150 ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-700 font-bold">
+                                  <span>~{log.distance} m</span>
+                                  <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-800 px-1.5 py-0.5 rounded-md border border-emerald-200 font-sans">OK (&lt;150m)</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-rose-700 font-bold">
+                                  <span>~{log.distance} m</span>
+                                  <span className="text-[10px] font-semibold bg-rose-50 text-rose-800 px-1.5 py-0.5 rounded-md border border-rose-200 font-sans">Terlalu Jauh</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 max-w-xs truncate" title={log.address}>
+                              <span className="text-slate-600 leading-relaxed text-[11px]">{log.address || "Resolving address..."}</span>
+                            </td>
+                            <td className="py-3.5 px-4">
+                              {isSuccess ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                  <span>Hadir (Sukses)</span>
+                                </span>
+                              ) : isLocError ? (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                                  <AlertCircle className="w-3 h-3 text-rose-600" />
+                                  <span>Gagal Jarak</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200 font-sans">
+                                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                  <span>Gagal PIN</span>
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-5 text-right">
+                              <a
+                                href={`https://www.google.com/maps/search/?api=1&query=${log.latitude},${log.longitude}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 hover:text-slate-900 rounded-lg px-2.5 py-1.5 text-[10px] font-semibold transition"
+                              >
+                                <Globe className="w-3 h-3 text-slate-500" />
+                                <span>Lihat Peta</span>
+                              </a>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* SECTION 3: WHATSAPP BOT INTEGRATION PANEL (ACCORDION STYLE) */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" id="wa_gateway_panel">
+              <button
+                type="button"
+                onClick={() => setIsDashWaOpen(!isDashWaOpen)}
+                className="w-full flex items-center justify-between p-4 bg-slate-50/70 hover:bg-slate-100/70 transition text-left focus:outline-none border-b border-slate-150"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+                    <MessageSquare className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span>3. Pusat Integrasi WhatsApp & Otomatisasi</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                        waBotStatus === "connected" 
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                          : waBotStatus === "qr"
+                          ? "bg-amber-50 text-amber-700 border-amber-200 animate-pulse"
+                          : "bg-slate-50 text-slate-600 border-slate-200"
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${waBotStatus === "connected" ? "bg-emerald-500 animate-ping" : "bg-slate-400"}`} />
+                        <span className="capitalize">{waBotStatus === "connected" ? "Terhubung" : waBotStatus === "qr" ? "Butuh Scan" : "Offline"}</span>
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Sambungkan nomor WhatsApp Anda untuk pengiriman pengingat harian secara gratis, aman, dan otomatis.</p>
+                  </div>
+                </div>
+                <div className="text-slate-400">
+                  {isDashWaOpen ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </div>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isDashWaOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden bg-white"
+                  >
+
+              {/* TABS SELECTOR */}
+              <div className="flex border-b border-slate-100 bg-slate-50/40">
+                <button
+                  type="button"
+                  onClick={() => setWaPanelMode("bot")}
+                  className={`flex-grow sm:flex-initial py-3.5 px-6 text-xs font-bold transition-all border-b-2 flex items-center justify-center gap-2 ${
+                    waPanelMode === "bot"
+                      ? "border-emerald-600 text-emerald-700 bg-white"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>🤖 BOT WHATSAPP OTOMATIS (Rekomendasi)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWaPanelMode("manual")}
+                  className={`flex-grow sm:flex-initial py-3.5 px-6 text-xs font-bold transition-all border-b-2 flex items-center justify-center gap-2 ${
+                    waPanelMode === "manual"
+                      ? "border-indigo-600 text-indigo-700 bg-white"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>📲 ASISTEN SIARAN MANUAL (Klik Link)</span>
+                </button>
+              </div>
+
+              <div className="p-5 space-y-6">
+                
+                {/* MODE 1: SERVER-SIDE AUTOMATED BOT (BAILEYS ENGINE) */}
+                {waPanelMode === "bot" && (
+                  <div className="space-y-6 animate-fade-in">
+                    {/* Educational / Explainer Banner */}
+                    <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-2xl p-4 text-xs text-slate-700 space-y-3 text-left">
+                      <h4 className="font-bold text-emerald-950 flex items-center gap-1.5">
+                        <CheckCircle className="w-4.5 h-4.5 text-emerald-700" />
+                        <span>Cara Kerja Bot Server (Asisten Otomatis)</span>
+                      </h4>
+                      <p className="leading-relaxed">
+                        Fitur ini menggunakan <strong>Baileys WhatsApp Web Gateway</strong> yang berjalan langsung di server Anda. Dengan menghubungkan akun WhatsApp Anda di bawah ini, server akan mengirimkan pesan pengingat <strong>secara otomatis di latar belakang</strong> pada jam kerja yang Anda tentukan, tanpa memerlukan interaksi manual lagi dari Anda!
+                      </p>
+                      <div className="text-[11px] bg-white/80 border border-emerald-200/60 p-3 rounded-xl space-y-1">
+                        <span className="font-bold text-emerald-900 block">💡 Langkah Singkat Memulai:</span>
+                        <p className="text-slate-600 leading-relaxed">
+                          1. Scan Barcode (QR Code) di bawah dengan aplikasi WhatsApp di HP Anda (Pilih menu <b>Perangkat Tertaut</b> &gt; <b>Tautkan Perangkat</b>).<br />
+                          2. Setelah terhubung, status akan berubah menjadi <b className="text-emerald-700">Terhubung</b>.<br />
+                          3. Atur jam pengingat harian dan gunakan tautan otomatisasi di bawah untuk disambungkan ke <b>UptimeRobot</b> agar bot terus berjalan mandiri setiap hari.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                      {/* Connection Block (Status or QR Code) */}
+                      <div className="lg:col-span-5 bg-slate-50 border border-slate-200 rounded-2xl p-5 flex flex-col justify-between relative overflow-hidden min-h-[340px]">
+                        
+                        {/* Selector if not connected */}
+                        {waBotStatus !== "connected" && (
+                          <div className="flex border border-slate-200 rounded-xl overflow-hidden bg-white mb-4 shrink-0 text-left">
+                            <button
+                              type="button"
+                              onClick={() => setWaConnectMethod("qr")}
+                              className={`w-1/2 py-2 text-[10px] sm:text-[11px] font-bold transition-all text-center cursor-pointer ${
+                                waConnectMethod === "qr"
+                                  ? "bg-slate-900 text-white font-bold"
+                                  : "bg-white text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              📷 Scan Barcode
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWaConnectMethod("phone")}
+                              className={`w-1/2 py-2 text-[10px] sm:text-[11px] font-bold transition-all text-center cursor-pointer ${
+                                waConnectMethod === "phone"
+                                  ? "bg-slate-900 text-white font-bold"
+                                  : "bg-white text-slate-600 hover:bg-slate-50"
+                              }`}
+                            >
+                              🔢 Kode Pairing
+                            </button>
+                          </div>
+                        )}
+
+                        {/* QR METHOD VIEW */}
+                        {waBotStatus !== "connected" && waConnectMethod === "qr" && (
+                          <>
+                            {/* Connecting State */}
+                            {(waBotStatus === "connecting" || (waBotStatus === "disconnected" && !waBotQr)) && (
+                              <div className="my-auto flex flex-col items-center justify-center text-center p-6 space-y-4">
+                                <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin" />
+                                <div>
+                                  <h5 className="font-bold text-slate-800 text-sm">Mempersiapkan Koneksi Bot...</h5>
+                                  <p className="text-xs text-slate-500 mt-1">Mengaktifkan gateway server. Mohon tunggu beberapa detik...</p>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* QR Code Scan State */}
+                            {waBotStatus === "qr" && waBotQr && (
+                              <div className="my-auto flex flex-col items-center justify-center text-center space-y-4">
+                                <div className="space-y-1">
+                                  <h5 className="font-bold text-slate-900 text-sm">Scan QR Code WhatsApp Anda</h5>
+                                  <p className="text-[11px] text-slate-500">Masa aktif QR Code terbatas. Segera lakukan pemindaian.</p>
+                                </div>
+                                
+                                <div className="relative p-3 bg-white rounded-2xl border border-slate-200/80 shadow-md">
+                                  <img 
+                                    src={waBotQr} 
+                                    alt="WhatsApp QR Code Scanner" 
+                                    className="w-48 h-48 block mx-auto rounded-lg"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <div className="absolute inset-0 border-2 border-emerald-500/20 rounded-2xl pointer-events-none animate-pulse" />
+                                </div>
+
+                                <div className="text-[10px] text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium leading-normal max-w-xs mx-auto">
+                                  <span>⚠️</span>
+                                  <span>Pilih <b>Perangkat Tertaut</b> di menu WhatsApp HP Anda untuk memindai barcode ini.</span>
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+
+                        {/* PHONE PAIRING METHOD VIEW */}
+                        {waBotStatus !== "connected" && waConnectMethod === "phone" && (
+                          <div className="my-auto flex flex-col justify-center text-left space-y-4 p-2">
+                            <div className="space-y-1">
+                              <h5 className="font-bold text-slate-950 text-xs sm:text-sm">Hubungkan dengan Nomor HP</h5>
+                              <p className="text-[11px] text-slate-500">Dapatkan kode 8 karakter untuk dimasukkan di WhatsApp HP Anda.</p>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="text-[10px] font-bold text-slate-700 uppercase tracking-wider block">Nomor WhatsApp Bot</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="Contoh: 08123456789"
+                                  value={waPairingPhone}
+                                  onChange={(e) => setWaPairingPhone(e.target.value)}
+                                  className="flex-1 bg-white text-slate-950 text-xs px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium shadow-xs"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleRequestWaPairingCode}
+                                  disabled={waPairingLoading || !waPairingPhone}
+                                  className="bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-[11px] px-3.5 rounded-xl transition shadow-xs flex items-center justify-center gap-1 cursor-pointer disabled:bg-slate-200 disabled:text-slate-400 disabled:pointer-events-none"
+                                >
+                                  {waPairingLoading ? (
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    "Dapatkan Kode"
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+
+                            {waPairingCode && (
+                              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center space-y-2">
+                                <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">KODE PAIRING ANDA:</span>
+                                <div className="text-xl font-black font-mono tracking-widest text-emerald-950 bg-white border border-emerald-150 py-1.5 rounded-xl shadow-xs select-all">
+                                  {waPairingCode}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(waPairingCode);
+                                    alert("Kode Pairing disalin!");
+                                  }}
+                                  className="text-[10px] text-emerald-700 hover:text-emerald-800 underline font-bold cursor-pointer"
+                                >
+                                  Salin Kode
+                                </button>
+                              </div>
+                            )}
+
+                            <div className="bg-slate-100 border border-slate-200 rounded-xl p-3 text-[10px] text-slate-600 space-y-1 leading-relaxed">
+                              <span className="font-bold text-slate-800 block">📲 Cara Memasukkan Kode di HP:</span>
+                              <p>
+                                1. Buka <b>WhatsApp</b> di HP Anda.<br />
+                                2. Buka menu <b>Perangkat Tertaut</b> &gt; ketuk <b>Tautkan Perangkat</b>.<br />
+                                3. Di bagian bawah layar pemindai kamera, ketuk <b>Tautkan dengan nomor telepon saja</b>.<br />
+                                4. Masukkan kode 8 karakter di atas.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Connected State */}
+                        {waBotStatus === "connected" && (
+                          <div className="my-auto flex flex-col items-center justify-center text-center space-y-4 py-4">
+                            <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner animate-pulse">
+                              <CheckCircle className="w-10 h-10" />
+                            </div>
+                            
+                            <div className="space-y-1">
+                              <h5 className="font-bold text-slate-900 text-sm">Bot Berhasil Terhubung!</h5>
+                              <p className="text-xs text-emerald-600 font-bold">Koneksi Aktif di Server</p>
+                            </div>
+
+                            <div className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs space-y-2 text-left shadow-xs">
+                              <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                                <span className="text-slate-500">Nama Perangkat:</span>
+                                <span className="font-bold text-slate-800">{waBotUser?.name || "WhatsApp Gateway"}</span>
+                              </div>
+                              <div className="flex justify-between border-b border-slate-100 pb-1.5">
+                                <span className="text-slate-500">Nomor Telepon:</span>
+                                <span className="font-mono font-bold text-slate-800">{waBotUser?.id ? waBotUser.id.split(":")[0] : "Terhubung"}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-500">Status Operasional:</span>
+                                <span className="text-emerald-600 font-bold flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                                  <span>Aktif (Standby)</span>
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleDisconnectWa}
+                              className="inline-flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-3 py-2 rounded-xl transition font-bold border border-rose-200 bg-white cursor-pointer"
+                            >
+                              <LogOut className="w-3.5 h-3.5" />
+                              <span>Putuskan Hubungan Bot</span>
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Display Errors if Any */}
+                        {waBotError && (
+                          <div className="absolute bottom-2 left-2 right-2 bg-rose-50 border border-rose-150 p-2 rounded-lg text-[10px] text-rose-700 text-center font-semibold">
+                            ⚠️ {waBotError}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Bot Controls & Integration Tools */}
+                      <div className="lg:col-span-7 space-y-5 flex flex-col justify-between">
+                        
+                        {/* Test Delivery Form */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3.5">
+                          <div className="space-y-0.5">
+                            <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Uji Coba Pengiriman Pesan</h5>
+                            <p className="text-[11px] text-slate-500">Kirim pesan uji coba untuk memverifikasi fungsionalitas koneksi bot Anda.</p>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div className="sm:col-span-1 space-y-1">
+                                <label className="text-[11px] font-bold text-slate-700">Nomor HP</label>
+                                <input
+                                  type="text"
+                                  placeholder="08123456789"
+                                  value={waTestPhone}
+                                  onChange={(e) => setWaTestPhone(e.target.value)}
+                                  disabled={waBotStatus !== "connected"}
+                                  className="w-full bg-white text-slate-950 text-xs px-2.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium disabled:bg-slate-100 disabled:text-slate-400"
+                                />
+                              </div>
+                              <div className="sm:col-span-2 space-y-1">
+                                <label className="text-[11px] font-bold text-slate-700">Isi Pesan Uji Coba</label>
+                                <input
+                                  type="text"
+                                  placeholder="Halo! Ini adalah pesan uji coba dari Bot WhatsApp Absensi."
+                                  value={waTestMessage}
+                                  onChange={(e) => setWaTestMessage(e.target.value)}
+                                  disabled={waBotStatus !== "connected"}
+                                  className="w-full bg-white text-slate-950 text-xs px-2.5 py-2 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium disabled:bg-slate-100 disabled:text-slate-400"
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={handleSendWaTest}
+                              disabled={waTestSending || waBotStatus !== "connected"}
+                              className="w-full bg-slate-900 hover:bg-slate-850 active:scale-98 text-white font-bold text-xs py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-xs disabled:bg-slate-200 disabled:text-slate-400 disabled:pointer-events-none"
+                            >
+                              {waTestSending ? (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Mengirim Pesan...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Phone className="w-3.5 h-3.5" />
+                                  <span>Kirim Pesan Uji Coba</span>
+                                </>
+                              )}
+                            </button>
+
+                            {/* Test Result Display */}
+                            {waTestResult && (
+                              <div className={`text-[11px] p-2.5 rounded-lg border font-medium ${
+                                waTestResult.success 
+                                  ? "bg-emerald-50 border-emerald-200 text-emerald-800" 
+                                  : "bg-rose-50 border-rose-200 text-rose-800"
+                              }`}>
+                                {waTestResult.success ? "✓ " : "✗ "} {waTestResult.msg}
+                              </div>
+                            )}
+
+                            {waBotStatus !== "connected" && (
+                              <p className="text-[10px] text-amber-700 italic text-center">
+                                * Hubungkan bot Anda terlebih dahulu dengan men-scan QR code di samping untuk mencoba pengiriman.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Cron Schedule & Status Panel */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left space-y-3.5">
+                          <div className="space-y-0.5">
+                            <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Layanan Pengingat Otomatis (Cron Service)</h5>
+                            <p className="text-[11px] text-slate-500">Atur jam pengiriman dan integrasikan dengan UptimeRobot untuk terus menyala.</p>
+                          </div>
+
+                          <div className="space-y-3 text-xs text-slate-700">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 border border-slate-200 rounded-xl">
+                              <div className="space-y-1">
+                                <span className="text-[11px] font-bold text-slate-600 block">Jadwal Pengiriman:</span>
+                                <div className="flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                                  <select
+                                    value={autoReminderHour}
+                                    onChange={(e) => setAutoReminderHour(e.target.value)}
+                                    className="bg-slate-50 text-slate-950 font-bold px-2 py-1 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                  >
+                                    <option value="07:00">07:00 WIB</option>
+                                    <option value="08:00">08:00 WIB</option>
+                                    <option value="08:30">08:30 WIB</option>
+                                    <option value="09:00">09:00 WIB (Standar)</option>
+                                    <option value="10:00">10:00 WIB</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={handleTriggerCronManual}
+                                disabled={isCronRunning || waBotStatus !== "connected"}
+                                className="bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-bold text-xs py-2 px-3 rounded-lg transition flex items-center justify-center gap-1 cursor-pointer disabled:bg-slate-200 disabled:text-slate-400 disabled:pointer-events-none"
+                              >
+                                {isCronRunning ? (
+                                  <>
+                                    <RefreshCw className="w-3 h-3 animate-spin" />
+                                    <span>Memproses...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Zap className="w-3 h-3" />
+                                    <span>Kirim Manual Sekarang</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            {/* Telemetry log blocks */}
+                            <div className="bg-white p-3 border border-slate-200 rounded-xl space-y-2">
+                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase">Terakhir Diping Server:</span>
+                                <span className="font-mono font-semibold text-slate-800">{lastCronPing || "Belum ada riwayat ping"}</span>
+                              </div>
+                              <div className="flex justify-between border-b border-slate-100 pb-1">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase">Tanggal Pengiriman Hari Ini:</span>
+                                <span className="font-mono font-semibold text-slate-800">{lastCronSentDate ? `Sukses (${lastCronSentDate})` : "Belum dikirim hari ini"}</span>
+                              </div>
+                              <div className="space-y-1">
+                                <span className="text-[10px] text-slate-500 font-bold uppercase block">Status Log Terakhir:</span>
+                                <div className="text-[11px] bg-slate-50 p-2 rounded-lg border border-slate-150 text-slate-600 leading-normal italic">
+                                  {lastCronStatus || "Bot siap menerima pemicu jadwal (cron)."}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* UptimeRobot copy link box */}
+                            <div className="bg-indigo-50/50 border border-indigo-150 p-3 rounded-xl space-y-2">
+                              <div className="space-y-0.5">
+                                <span className="font-bold text-indigo-950 block text-[11px]">🔗 Hubungkan ke UptimeRobot:</span>
+                                <p className="text-[10px] text-slate-600 leading-relaxed">
+                                  Salin tautan cron API di bawah ini ke <b>UptimeRobot</b> dengan tipe pemantauan <b>HTTP(s) GET</b> agar terus dipicu otomatis setiap 5-10 menit. Server akan menyaring jam dan hanya mengirim di jam yang Anda tentukan di atas.
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="text"
+                                  readOnly
+                                  value={`${window.location.origin}/api/cron-reminder`}
+                                  className="w-full bg-white text-[10px] font-mono text-slate-700 px-2 py-1.5 border border-indigo-200 rounded-lg select-all outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(`${window.location.origin}/api/cron-reminder`);
+                                    alert("Link cron berhasil disalin! Hubungkan link ini ke monitor UptimeRobot Anda.");
+                                  }}
+                                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-lg transition shrink-0 cursor-pointer"
+                                >
+                                  Salin Link
+                                </button>
+                              </div>
+                            </div>
+
+                          </div>
+                        </div>
+
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* MODE 2: CLIENT-SIDE MANUAL BROADCAST (ORIGINAL) */}
+                {waPanelMode === "manual" && (
+                  <div className="space-y-6 animate-fade-in">
+                    {/* EDUCATIONAL / TRANSPARENCY ANSWER CARD */}
+                    <div className="bg-emerald-50/50 border border-emerald-200/80 rounded-xl p-4 text-xs text-slate-700 space-y-3 text-left">
+                      <h4 className="font-bold text-emerald-900 flex items-center gap-1.5 text-xs sm:text-sm">
+                        <CheckCircle className="w-4.5 h-4.5 text-emerald-700" />
+                        <span>Solusi Presensi WhatsApp 100% Gratis & Aman</span>
+                      </h4>
+                      <p className="leading-relaxed">
+                        Sistem ini menggunakan metode siaran manual dengan HP atau WhatsApp Web Anda langsung. Anda tidak memerlukan token API berbayar, resmi, dan sangat aman dari risiko terblokir.
+                      </p>
+                      <p className="leading-relaxed font-semibold text-slate-800">
+                        💡 Cara Kerja Asisten Siaran Gratis:
+                      </p>
+                      <ul className="list-disc pl-5 space-y-1 text-slate-600">
+                        <li>Sistem menghasilkan format pesan dan tautan login unik otomatis untuk masing-masing pekerja.</li>
+                        <li>Anda bisa menyalin semua pesan sekaligus, atau menggunakan <strong>Asisten Kirim Cepat</strong> untuk mengirim pesan satu per satu dalam beberapa klik secara runtut.</li>
+                      </ul>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      
+                      {/* CONFIGURATION */}
+                      <div className="space-y-5">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider text-left">Pengaturan Pengiriman Gratis</h4>
+                        
+                        <div className="space-y-4">
+                          {/* Provider Select */}
+                          <div className="space-y-1.5 text-left">
+                            <label className="text-xs font-bold text-slate-700">Metode Pengiriman WhatsApp</label>
+                            <select
+                              value={waMethod}
+                              onChange={(e: any) => setWaMethod(e.target.value)}
+                              className="w-full bg-slate-50 text-slate-950 text-xs px-3 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium cursor-pointer"
+                            >
+                              <option value="desktop">Gunakan Aplikasi WhatsApp Desktop / HP (Aman & Cepat)</option>
+                              <option value="web">Gunakan WhatsApp Web Browser (Buka di Tab Baru)</option>
+                            </select>
+                            <p className="text-[10px] text-slate-500 mt-1">
+                              {waMethod === "desktop" 
+                                ? "✓ Menggunakan protokol wa.me resmi untuk membuka aplikasi WhatsApp Desktop/HP Anda secara otomatis." 
+                                : "✓ Membuka tab baru langsung ke web.whatsapp.com yang sudah terhubung dengan akun Anda."}
+                            </p>
+                          </div>
+
+                          {/* AUTO REMINDER SYSTEM CONFIG */}
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-4">
+                            <div className="flex items-center justify-between">
+                              <div className="space-y-0.5 text-left">
+                                <div className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                                  <Clock className="w-4 h-4 text-indigo-500" />
+                                  <span>Pengingat Kehadiran Harian (Reminder Prompt)</span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 font-sans">Ingatkan pekerja yang belum absen menjelang jam kerja dimulai.</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setAutoReminderEnabled(!autoReminderEnabled)}
+                                className={`w-11 h-6 rounded-full transition duration-200 focus:outline-none relative flex items-center ${
+                                  autoReminderEnabled ? "bg-indigo-600" : "bg-slate-300"
+                                }`}
+                              >
+                                <span 
+                                  className={`w-5 h-5 bg-white rounded-full shadow-md transition-transform duration-200 absolute ${
+                                    autoReminderEnabled ? "translate-x-5.5" : "translate-x-0.5"
+                                  }`}
+                                />
+                              </button>
+                            </div>
+
+                            {autoReminderEnabled && (
+                              <div className="grid grid-cols-1 gap-3 pt-3 border-t border-slate-200 text-left">
+                                <div className="space-y-1">
+                                  <label className="text-[11px] font-bold text-slate-700">Waktu Pengingat</label>
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      value={autoReminderHour}
+                                      onChange={(e) => setAutoReminderHour(e.target.value)}
+                                      className="bg-white text-slate-950 text-xs px-2 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono font-bold cursor-pointer"
+                                    >
+                                      <option value="07:00">07:00 pagi</option>
+                                      <option value="08:00">08:00 pagi</option>
+                                      <option value="08:30">08:30 pagi</option>
+                                      <option value="09:00">09:00 pagi (Standar)</option>
+                                      <option value="10:00">10:00 pagi</option>
+                                    </select>
+                                    <span className="text-[11px] text-slate-500 font-medium">Zona waktu lokal</span>
+                                  </div>
+                                </div>
+
+                                <div className="text-[11px] text-slate-500 bg-white border border-slate-200 p-2.5 rounded-lg leading-relaxed font-sans">
+                                  📝 <strong>Cara Kerja:</strong> Dashboard akan memberikan indikator tanda seru merah setelah jam <strong>{autoReminderHour}</strong> jika masih ada pekerja aktif yang belum absen mandiri hari ini. Anda bisa mengklik tombol pengingat untuk meluncurkan asisten siaran kilat.
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* INFO PANEL ON BENEFITS */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col justify-between">
+                        <div className="space-y-3 text-left">
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle className="w-4 h-4 text-indigo-500" />
+                            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Keunggulan Metode Resmi Gratis</h4>
+                          </div>
+                          <div className="space-y-2 text-[11px] text-slate-600 leading-relaxed font-sans">
+                            <div className="p-2 bg-white rounded-lg border border-slate-150 flex items-start gap-2">
+                              <span className="text-emerald-600 font-bold">✓</span>
+                              <span><strong>Tanpa Biaya Bulanan:</strong> Tidak perlu berlangganan pihak ketiga yang berbayar (rata-rata Rp 50.000 - Rp 150.000 per bulan).</span>
+                            </div>
+                            <div className="p-2 bg-white rounded-lg border border-slate-150 flex items-start gap-2">
+                              <span className="text-emerald-600 font-bold">✓</span>
+                              <span><strong>Sangat Aman (Anti-Banned):</strong> Menggunakan akun WhatsApp resmi Anda langsung, terverifikasi oleh aplikasi WhatsApp di HP Anda. Aman dari risiko banned.</span>
+                            </div>
+                            <div className="p-2 bg-white rounded-lg border border-slate-150 flex items-start gap-2">
+                              <span className="text-emerald-600 font-bold">✓</span>
+                              <span><strong>Mudah Digunakan:</strong> Tidak membutuhkan setup teknis yang rumit, konfigurasi webhook, server gateway, atau token sandi API yang membingungkan.</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-200 pt-3 mt-4 text-[10px] text-slate-500 leading-relaxed italic text-left">
+                          ℹ️ Sistem siap digunakan dengan metode pengiriman resmi gratis. Silakan klik tombol di bawah untuk mulai mengirim.
+                        </div>
+                      </div>
+
+                    </div>
+
+                    {/* AUTOMATION TRIGGER BAR FOR TODAY'S ABSENT WORKERS */}
+                    <div className="bg-slate-900 text-white rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="space-y-1 text-center sm:text-left">
+                        <div className="inline-flex items-center gap-1 bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider">
+                          <span>Asisten Kirim Gratis</span>
+                        </div>
+                        <h4 className="text-sm font-bold font-display">Kirim Pengingat Uang Makan Hari Ini</h4>
+                        <p className="text-xs text-slate-400 max-w-lg leading-relaxed font-sans">
+                          Kirim pesan pengingat berisi tautan absen mandiri unik dan PIN presensi hari ini ke seluruh pekerja aktif dengan asisten kirim gratis.
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBulkViewMode("list");
+                          setShowBulkWA(true);
+                        }}
+                        className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs py-3 px-5 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-950 shrink-0"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                        <span>Luncurkan Panel Siaran Massal</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          </div>
+        )}
+
         {/* TAB 1: ABSENSI UANG MAKAN HARIAN */}
         {activeTab === "absen" && (
           <div className="space-y-6" id="attendance_tab_view">
@@ -3945,21 +5490,35 @@ export default function App() {
 
                           <div className="flex flex-col gap-1">
                             <span className="text-[10px] text-transparent select-none font-bold block">Action:</span>
-                            <button
-                              onClick={() => {
-                                const activeWorkers = workers.filter(w => w.isActive);
-                                const compiled = activeWorkers.map(w => {
-                                  const link = `${window.location.origin}/?id=${w.id}`;
-                                  return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
-                                }).join("\n\n-------------------------\n\n");
-                                navigator.clipboard.writeText(compiled);
-                                alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
-                              }}
-                              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-100 cursor-pointer"
-                            >
-                              <FileCheck className="w-4 h-4" />
-                              <span>Salin Semua Format</span>
-                            </button>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => {
+                                  const activeWorkers = workers.filter(w => w.isActive);
+                                  const compiled = activeWorkers.map(w => {
+                                    const link = `${window.location.origin}/?id=${w.id}`;
+                                    return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                                  }).join("\n\n-------------------------\n\n");
+                                  navigator.clipboard.writeText(compiled);
+                                  alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
+                                }}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-100 cursor-pointer"
+                              >
+                                <FileCheck className="w-4 h-4" />
+                                <span>Salin Semua Format</span>
+                              </button>
+
+                              {/* WhatsApp Quick Send Button */}
+                              <button
+                                onClick={() => {
+                                  setBulkViewMode("step");
+                                  setCurrentStepIndex(0);
+                                }}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 px-4 rounded-xl transition flex items-center justify-center gap-1.5 shadow-sm shadow-emerald-100 cursor-pointer"
+                              >
+                                <Zap className="w-4 h-4 text-amber-300" />
+                                <span>Gunakan Asisten Kirim Cepat</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
