@@ -616,6 +616,159 @@ Return a strict JSON response conforming exactly to this structure:
   }
 });
 
+// Endpoint to Parse Bank Statement PDF / Image
+app.post("/api/parse-bank-statement", async (req, res) => {
+  try {
+    const { fileBase64, fileName, mimeType } = req.body;
+
+    if (!fileBase64) {
+      return res.status(400).json({ error: "No file content provided" });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ 
+        error: "GEMINI_API_KEY is not configured on the server. Please check your system secrets." 
+      });
+    }
+
+    const defaultMime = mimeType || "application/pdf";
+    
+    const inlinePart = {
+      inlineData: {
+        mimeType: defaultMime,
+        data: fileBase64,
+      },
+    };
+
+    const textPart = {
+      text: `Analyze this bank statement document (PDF/Image) and extract the statement details and all transaction rows.
+The document's file name is: "${fileName}".
+Strictly structure your response in Indonesian/English as specified below.
+Ensure you capture:
+1. Bank Name (e.g. BCA, MANDIRI, BRI, BNI, etc. - identify clearly)
+2. Account Number / Nomor Rekening (if any)
+3. Account Holder / Pemilik Rekening (if any)
+4. Statement Period / Periode Rekening Koran
+5. Transactions list:
+   - Date (format YYYY-MM-DD or keep original if clear)
+   - Description / Keterangan (description of mutasi)
+   - Amount (numeric value only)
+   - Type (DEBIT for money out / pengeluaran, CREDIT for money in / pemasukan)
+   - Balance (the remaining balance after the transaction, numeric value only, if specified)
+
+Also find the overall summary if stated:
+- Total Debet (Pengeluaran/Debet)
+- Total Kredit (Pemasukan/Kredit)
+- Starting Balance (Saldo Awal)
+- Ending Balance (Saldo Akhir)
+
+Return a strict JSON response conforming exactly to this structure:
+{
+  "transactions": [
+    {
+      "date": "YYYY-MM-DD",
+      "description": "TRANSFER DR BUDI",
+      "amount": 500000,
+      "type": "CREDIT",
+      "balance": 2500000
+    }
+  ],
+  "summary": {
+    "bankName": "MANDIRI",
+    "accountNumber": "1234567890",
+    "accountHolder": "PT. Nusantara Mineral Sukses Abadi",
+    "period": "Mei 2026",
+    "totalDebit": 4500000,
+    "totalCredit": 12000000,
+    "startingBalance": 1000000,
+    "endingBalance": 8500000
+  }
+}`,
+    };
+
+    console.log("Analyzing bank statement: size =" + fileBase64.length + " bytes, type =" + defaultMime);
+
+    const modelsToTry = [
+      "gemini-2.5-flash", 
+      "gemini-flash-latest", 
+      "gemini-3.1-flash-lite", 
+      "gemini-3.5-flash"
+    ];
+    let response = null;
+    let lastError: any = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Attempting bank statement analysis with model: ${modelName}`);
+        response = await ai.models.generateContent({
+          model: modelName,
+          contents: [inlinePart, textPart],
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                transactions: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      date: { type: Type.STRING },
+                      description: { type: Type.STRING },
+                      amount: { type: Type.INTEGER },
+                      type: { type: Type.STRING, enum: ["DEBIT", "CREDIT"] },
+                      balance: { type: Type.INTEGER },
+                    },
+                    required: ["date", "description", "amount", "type"],
+                  },
+                },
+                summary: {
+                  type: Type.OBJECT,
+                  properties: {
+                    bankName: { type: Type.STRING },
+                    accountNumber: { type: Type.STRING },
+                    accountHolder: { type: Type.STRING },
+                    period: { type: Type.STRING },
+                    totalDebit: { type: Type.INTEGER },
+                    totalCredit: { type: Type.INTEGER },
+                    startingBalance: { type: Type.INTEGER },
+                    endingBalance: { type: Type.INTEGER },
+                  },
+                  required: ["bankName", "totalDebit", "totalCredit"],
+                },
+              },
+              required: ["transactions", "summary"],
+            },
+          },
+        });
+        
+        if (response && response.text) {
+          console.log(`Successfully completed bank statement analysis using model: ${modelName}`);
+          break;
+        }
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Model ${modelName} encountered an error in bank statement: ${err.message || err}. Trying next available model...`);
+      }
+    }
+
+    if (!response || !response.text) {
+      throw lastError || new Error("All fallback models failed to analyze the bank statement.");
+    }
+
+    const resultText = response.text;
+    if (!resultText) {
+      throw new Error("No response received from Gemini engine");
+    }
+
+    const parsedData = JSON.parse(resultText);
+    res.json(parsedData);
+  } catch (error: any) {
+    console.error("Gemini Bank Statement Parsing error:", error);
+    res.status(500).json({ error: error.message || "Failed to analyze bank statement" });
+  }
+});
+
 // --- WHATSAPP BAILEYS BOT INTEGRATION ENDPOINTS ---
 import { 
   initWhatsApp, 

@@ -63,3 +63,31 @@ export interface PettyCashReport {
   driveFileId?: string; // If saved to Google Drive
   driveUrl?: string;
 }
+
+export interface BankStatementTransaction {
+  date: string;
+  description: string;
+  amount: number;
+  type: "DEBIT" | "CREDIT";
+  balance?: number;
+}
+
+export interface BankStatementSummary {
+  bankName: string;
+  accountNumber?: string;
+  accountHolder?: string;
+  period?: string;
+  totalDebit: number;
+  totalCredit: number;
+  startingBalance?: number;
+  endingBalance?: number;
+}
+
+export interface BankStatementReport {
+  id: string;
+  fileName: string;
+  uploadedAt: string;
+  summary: BankStatementSummary;
+  transactions: BankStatementTransaction[];
+}
+

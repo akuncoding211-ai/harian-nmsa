@@ -166,6 +166,31 @@ export default function App() {
 
   const [selectedUploadHolder, setSelectedUploadHolder] = useState<string>("Suryo Pranoto");
 
+  // --- Bank Statement States ---
+  const [activeSubTab, setActiveSubTab] = useState<"pettycash" | "bankstatement">("pettycash");
+  const [bankStatementFile, setBankStatementFile] = useState<File | null>(null);
+  const [isParsingBankStatement, setIsParsingBankStatement] = useState<boolean>(false);
+  const [bankStatementParseError, setBankStatementParseError] = useState<string | null>(null);
+  const [bankStatements, setBankStatements] = useState<BankStatementReport[]>(() => {
+    const saved = localStorage.getItem("bank_statement_reports");
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [activeBankStatement, setActiveBankStatement] = useState<BankStatementReport | null>(() => {
+    const saved = localStorage.getItem("bank_statement_reports");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return parsed.length > 0 ? parsed[0] : null;
+    }
+    return null;
+  });
+
+  const [isDeleteConfirmModalOpen, setIsDeleteConfirmModalOpen] = useState<boolean>(false);
+  const [bankStatementToDelete, setBankStatementToDelete] = useState<string | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem("bank_statement_reports", JSON.stringify(bankStatements));
+  }, [bankStatements]);
+
   // Self-profile editing states
   const [editBankName, setEditBankName] = useState<string>("");
   const [editBankAccount, setEditBankAccount] = useState<string>("");
@@ -1057,6 +1082,126 @@ export default function App() {
     } finally {
       setIsParsing(false);
     }
+  };
+
+  const handleBankStatementUploadAndParse = async () => {
+    if (!bankStatementFile) {
+      setBankStatementParseError("Silakan pilih file PDF atau Gambar rekening koran terlebih dahulu.");
+      return;
+    }
+
+    setIsParsingBankStatement(true);
+    setBankStatementParseError(null);
+
+    try {
+      const base64 = await toBase64(bankStatementFile);
+      const cleanBase64 = base64.split(",")[1];
+
+      const payload = {
+        fileBase64: cleanBase64,
+        fileName: bankStatementFile.name,
+        mimeType: bankStatementFile.type,
+      };
+
+      const response = await fetch("/api/parse-bank-statement", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json();
+        throw new Error(errJson.error || "Gagal menghubungi modul analisis server.");
+      }
+
+      const rawResult = await response.json();
+
+      const newReportId = "BS-" + Math.floor(Math.random() * 900000 + 100000);
+      const processedReport: BankStatementReport = {
+        id: newReportId,
+        fileName: bankStatementFile.name,
+        uploadedAt: new Date().toISOString(),
+        summary: rawResult.summary,
+        transactions: rawResult.transactions || [],
+      };
+
+      const updatedStatements = [processedReport, ...bankStatements];
+      setBankStatements(updatedStatements);
+      localStorage.setItem("bank_statement_reports", JSON.stringify(updatedStatements));
+      setActiveBankStatement(processedReport);
+      setBankStatementFile(null);
+
+    } catch (error: any) {
+      console.error(error);
+      setBankStatementParseError(error.message || "Terjadi kesalahan internal saat membaca rekening koran.");
+    } finally {
+      setIsParsingBankStatement(false);
+    }
+  };
+
+  const handleLoadDemoBankStatement = () => {
+    setIsParsingBankStatement(true);
+    setBankStatementParseError(null);
+
+    setTimeout(() => {
+      const demoId = "BS-DEMO-" + Math.floor(Math.random() * 9000 + 1000);
+      const demoReport: BankStatementReport = {
+        id: demoId,
+        fileName: "Rekening_Koran_BCA_PT_Nusa_Mineral_Mei_2026.pdf",
+        uploadedAt: new Date().toISOString(),
+        summary: {
+          bankName: "BCA (Bank Central Asia)",
+          accountNumber: "8472910482",
+          accountHolder: "PT. Nusantara Mineral Sukses Abadi",
+          period: "01 Mei 2026 - 31 Mei 2026",
+          totalDebit: 18500000,
+          totalCredit: 45000000,
+          startingBalance: 12500000,
+          endingBalance: 39000000,
+        },
+        transactions: [
+          { date: "2026-05-02", description: "TRSF E-BANKING DB PT NMSA SETORAN", amount: 45000000, type: "CREDIT", balance: 57500000 },
+          { date: "2026-05-05", description: "BIAYA LOGISTIK SOLAR PROYEK", amount: 8500000, type: "DEBIT", balance: 49000000 },
+          { date: "2026-05-12", description: "TARIK TUNAI ATM MANDOR BAMBANG", amount: 5000000, type: "DEBIT", balance: 44000000 },
+          { date: "2026-05-18", description: "SWASTA SEWA EXCAVATOR CAT320", amount: 4500000, type: "DEBIT", balance: 39500000 },
+          { date: "2026-05-25", description: "BIAYA ADMIN REKENING BULANAN", amount: 500000, type: "DEBIT", balance: 39000000 },
+        ],
+      };
+
+      const updatedStatements = [demoReport, ...bankStatements];
+      setBankStatements(updatedStatements);
+      localStorage.setItem("bank_statement_reports", JSON.stringify(updatedStatements));
+      setActiveBankStatement(demoReport);
+      setIsParsingBankStatement(false);
+    }, 1200);
+  };
+
+  const handleDeleteBankStatement = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setBankStatementToDelete(id);
+    setIsDeleteConfirmModalOpen(true);
+  };
+
+  const handleConfirmDeleteBankStatement = () => {
+    if (!bankStatementToDelete) return;
+    const remaining = bankStatements.filter(s => s.id !== bankStatementToDelete);
+    setBankStatements(remaining);
+    localStorage.setItem("bank_statement_reports", JSON.stringify(remaining));
+    if (activeBankStatement?.id === bankStatementToDelete) {
+      setActiveBankStatement(remaining.length > 0 ? remaining[0] : null);
+    }
+    setIsDeleteConfirmModalOpen(false);
+    setBankStatementToDelete(null);
+  };
+
+  const handleLocalDownloadBankStatement = () => {
+    if (!activeBankStatement) return;
+    const cleanFileName = `RekeningKoran_${activeBankStatement.summary.bankName.replace(/\s+/g, "_")}_${activeBankStatement.summary.period?.replace(/\s+/g, "_") || "Mei"}.xlsx`;
+    import("./lib/excelGenerator").then(({ triggerBankStatementExcelDownload }) => {
+      triggerBankStatementExcelDownload(activeBankStatement.transactions, activeBankStatement.summary, cleanFileName);
+    });
   };
 
   // Inject beautiful preset templates/samples for user convenience to showcase Gemini parsing in 1-click
@@ -2569,7 +2714,7 @@ export default function App() {
                 }`}
               >
                 <FileText className="w-3.5 h-3.5 text-blue-600" />
-                <span>Petty Cash PDF Parser</span>
+                <span>Pembacaan Dokumen PDF</span>
               </button>
 
               <button
@@ -4084,9 +4229,47 @@ export default function App() {
         {/* TAB 2: PETTY CASH PDF OCR PARSER TO EXCEL AND GOOGLE DRIVE */}
         {activeTab === "pettycash" && (
           <div className="space-y-6" id="pettycash_tab_view">
-              
-              {/* BRAND NEW PREMIUM PORTFOLIO DASHBOARD PANEL */}
-              <div className="bg-slate-900 text-white rounded-2xl border border-slate-800 p-6 shadow-xl space-y-6">
+            
+            {/* SUB-MENU SELECTION */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="space-y-0.5 text-left">
+                <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                  <span>📂 Menu Analisis Dokumen AI</span>
+                </h3>
+                <p className="text-[11px] text-slate-500">Pilih jenis dokumen keuangan yang ingin Anda proses dan konversikan ke file Excel otomatis.</p>
+              </div>
+              <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab("pettycash")}
+                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    activeSubTab === "pettycash"
+                      ? "bg-white text-slate-900 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Petty Cash / Kas Kecil</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveSubTab("bankstatement")}
+                  className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    activeSubTab === "bankstatement"
+                      ? "bg-white text-slate-900 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Rekening Koran Bank</span>
+                </button>
+              </div>
+            </div>
+
+            {activeSubTab === "pettycash" && (
+              <div className="space-y-6">
+                {/* BRAND NEW PREMIUM PORTFOLIO DASHBOARD PANEL */}
+                <div className="bg-slate-900 text-white rounded-2xl border border-slate-800 p-6 shadow-xl space-y-6">
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
                   {/* Left Side: Header & Context */}
                   <div className="space-y-1">
@@ -4854,6 +5037,302 @@ export default function App() {
           </div>
         </div>
       )}
+
+        {/* SUBTAB 2: REKENING KORAN (BANK STATEMENT) */}
+        {activeSubTab === "bankstatement" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8" id="bank_statement_workspace_grid">
+            
+            {/* LEFT SIDE: CONTROL & HISTORY PANEL */}
+            <div className="lg:col-span-4 space-y-6 text-left">
+              
+              {/* FILE UPLOAD CARD */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                <h3 className="text-base font-bold text-slate-900 font-display mb-2 flex items-center gap-1.5">
+                  <CloudUpload className="w-5 h-5 text-indigo-600" />
+                  <span>Upload Rekening Koran</span>
+                </h3>
+                <p className="text-xs text-slate-500 mb-4 text-balance leading-relaxed">
+                  Unggah file PDF atau Gambar (PNG/JPG) rekening koran Anda. AI akan membaca nama bank, nomor rekening, pemilik, periode, dan merinci seluruh mutasi transaksi.
+                </p>
+
+                {/* Drag and Drop Zone */}
+                <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 text-center hover:border-indigo-500 transition relative bg-slate-50/50">
+                  <input
+                    type="file"
+                    accept="application/pdf,image/*"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setBankStatementFile(e.target.files[0]);
+                        setBankStatementParseError(null);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                  <Upload className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-slate-700">Tarik berkas ke sini atau Klik untuk memilih</p>
+                  <p className="text-[10px] text-slate-500 mt-1">PDF, PNG, JPG maks 10MB</p>
+                </div>
+
+                {bankStatementFile && (
+                  <div className="mt-4 p-3 bg-indigo-50 border border-indigo-100 rounded-xl flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-indigo-950 truncate max-w-[180px]">{bankStatementFile.name}</div>
+                      <div className="text-[10px] text-slate-500">{(bankStatementFile.size / 1024).toFixed(1)} KB</div>
+                    </div>
+                    <button onClick={() => setBankStatementFile(null)} className="text-xs text-red-500 hover:underline cursor-pointer">
+                      Urung
+                    </button>
+                  </div>
+                )}
+
+                {bankStatementParseError && (
+                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-1.5 text-xs text-red-800">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    <div>{bankStatementParseError}</div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={handleBankStatementUploadAndParse}
+                    disabled={isParsingBankStatement || !bankStatementFile}
+                    className={`flex-1 font-bold text-xs py-2.5 rounded-xl border flex items-center justify-center gap-2 transition duration-200 ${
+                      isParsingBankStatement 
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200"
+                        : "bg-indigo-600 hover:bg-indigo-700 text-white border-transparent cursor-pointer shadow-sm shadow-indigo-100"
+                    }`}
+                  >
+                    {isParsingBankStatement ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Membaca dengan AI...</span>
+                      </>
+                    ) : (
+                      <>
+                        <FileCheck className="w-4 h-4" />
+                        <span>Mulai Pembacaan AI</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={handleLoadDemoBankStatement}
+                    disabled={isParsingBankStatement}
+                    title="Muat contoh demo rekening koran instan"
+                    className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-xs px-3 rounded-xl transition cursor-pointer flex items-center justify-center"
+                  >
+                    <span>Demo ⚡</span>
+                  </button>
+                </div>
+
+                <div className="mt-4 text-[10px] text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-150 flex items-start gap-1.5 leading-relaxed">
+                  <span>💡</span>
+                  <span><strong>Tip:</strong> Pindai rekening koran Anda. AI secara otomatis mengenali nama bank penerbit (BCA, Mandiri, BRI, BNI dll) dan mengelompokkan mutasi debet/kredit secara terpisah serta akurat.</span>
+                </div>
+
+              </div>
+
+              {/* BANK STATEMENT LIST / HISTORY CARD */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+                <h3 className="text-sm font-bold text-slate-900 font-display mb-3 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-indigo-600" />
+                  <span>Riwayat Rekening Koran ({bankStatements.length})</span>
+                </h3>
+
+                {bankStatements.length === 0 ? (
+                  <div className="text-center py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <p className="text-xs text-slate-400">Belum ada riwayat dokumen.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                    {bankStatements.map((report) => (
+                      <div
+                        key={report.id}
+                        onClick={() => setActiveBankStatement(report)}
+                        className={`p-3 rounded-xl border transition text-left cursor-pointer flex items-center justify-between gap-2 ${
+                          activeBankStatement?.id === report.id
+                            ? "bg-indigo-50/70 border-indigo-200 text-indigo-950"
+                            : "bg-white hover:bg-slate-50 border-slate-200 text-slate-700"
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-bold truncate">{report.summary.bankName || "Rekening Koran"}</p>
+                          <p className="text-[10px] text-slate-400 truncate mt-0.5">{report.fileName}</p>
+                          <p className="text-[9px] text-slate-400 font-mono mt-1">
+                            {new Date(report.uploadedAt).toLocaleDateString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteBankStatement(report.id, e)}
+                          className="text-slate-400 hover:text-red-500 p-1.5 hover:bg-red-50 rounded-lg transition"
+                        >
+                          <Trash className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* RIGHT SIDE: VIEWPORT & LIVE WORKSPACE */}
+            <div className="lg:col-span-8 space-y-6 text-left">
+              {activeBankStatement ? (
+                <div className="space-y-6">
+                  
+                  {/* BANK STATEMENT METADATA CARD */}
+                  <div className="bg-slate-900 text-white rounded-2xl border border-slate-800 p-6 shadow-xl space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                      <div className="space-y-1 text-left">
+                        <span className="text-[10px] font-mono font-extrabold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-2.5 py-1 rounded-full uppercase tracking-widest">
+                          HASIL PEMBACAAN REKENING KORAN
+                        </span>
+                        <h2 className="text-lg font-extrabold font-display tracking-tight text-white mt-2 flex items-center gap-2">
+                          <span>🏦 {activeBankStatement.summary.bankName}</span>
+                        </h2>
+                        <p className="text-xs text-slate-400 leading-relaxed max-w-xl">
+                          Sistem berhasil mengenali format dokumen bank dan memisahkan mutasi debet/kredit secara aman.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={handleLocalDownloadBankStatement}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl transition shadow-md shadow-emerald-950/40 cursor-pointer flex items-center gap-1.5 animate-bounce"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Unduh Excel (.xlsx)</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Metadata grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-4 border-t border-slate-800 text-left">
+                      <div className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-3.5">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Nomor Rekening</span>
+                        <span className="text-xs font-bold text-slate-200 block mt-1 truncate">
+                          {activeBankStatement.summary.accountNumber || "Tidak Terdeteksi"}
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-3.5">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Pemilik Rekening</span>
+                        <span className="text-xs font-bold text-slate-200 block mt-1 truncate">
+                          {activeBankStatement.summary.accountHolder || "Tidak Terdeteksi"}
+                        </span>
+                      </div>
+
+                      <div className="bg-slate-950/50 border border-slate-800/80 rounded-xl p-3.5">
+                        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider block">Periode Laporan</span>
+                        <span className="text-xs font-bold text-indigo-300 block mt-1 truncate">
+                          {activeBankStatement.summary.period || "Seluruh Periode"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Financial stats row */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 text-left">
+                      <div className="bg-indigo-950/40 border border-indigo-500/20 rounded-xl p-3.5">
+                        <span className="text-[10px] font-medium text-indigo-300 uppercase tracking-wider block">Saldo Awal</span>
+                        <span className="text-sm font-extrabold text-white block mt-1">
+                          Rp {activeBankStatement.summary.startingBalance ? activeBankStatement.summary.startingBalance.toLocaleString("id-ID") : "-"}
+                        </span>
+                      </div>
+
+                      <div className="bg-emerald-950/40 border border-emerald-500/20 rounded-xl p-3.5">
+                        <span className="text-[10px] font-medium text-emerald-300 uppercase tracking-wider block">Total Kredit (In)</span>
+                        <span className="text-sm font-extrabold text-emerald-400 block mt-1">
+                          Rp {activeBankStatement.summary.totalCredit.toLocaleString("id-ID")}
+                        </span>
+                      </div>
+
+                      <div className="bg-rose-950/40 border border-rose-500/20 rounded-xl p-3.5">
+                        <span className="text-[10px] font-medium text-rose-300 uppercase tracking-wider block">Total Debet (Out)</span>
+                        <span className="text-sm font-extrabold text-rose-400 block mt-1">
+                          Rp {activeBankStatement.summary.totalDebit.toLocaleString("id-ID")}
+                        </span>
+                      </div>
+
+                      <div className="bg-indigo-950/40 border border-indigo-500/20 rounded-xl p-3.5">
+                        <span className="text-[10px] font-medium text-indigo-300 uppercase tracking-wider block">Saldo Akhir</span>
+                        <span className="text-sm font-extrabold text-indigo-300 block mt-1">
+                          Rp {activeBankStatement.summary.endingBalance ? activeBankStatement.summary.endingBalance.toLocaleString("id-ID") : "-"}
+                        </span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* MUTASI TRANSAKSI TABLE */}
+                  <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4 text-left">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        <Database className="w-4 h-4 text-indigo-600" />
+                        <span>Daftar Transaksi Hasil Ekstraksi ({activeBankStatement.transactions.length})</span>
+                      </h3>
+                    </div>
+
+                    <div className="overflow-x-auto border border-slate-150 rounded-xl">
+                      <table className="w-full text-xs text-left text-slate-600">
+                        <thead className="bg-slate-50 text-[10px] text-slate-500 uppercase font-mono border-b border-slate-150">
+                          <tr>
+                            <th className="px-4 py-3 font-semibold">No</th>
+                            <th className="px-4 py-3 font-semibold">Tanggal</th>
+                            <th className="px-4 py-3 font-semibold">Keterangan / Mutasi</th>
+                            <th className="px-4 py-3 font-semibold text-center">Tipe</th>
+                            <th className="px-4 py-3 font-semibold text-right">Nominal</th>
+                            <th className="px-4 py-3 font-semibold text-right">Saldo</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {activeBankStatement.transactions.map((tx, idx) => (
+                            <tr key={idx} className="hover:bg-slate-50/50 transition">
+                              <td className="px-4 py-3 font-mono text-[10px] text-slate-400">{idx + 1}</td>
+                              <td className="px-4 py-3 font-semibold whitespace-nowrap text-slate-700">{tx.date}</td>
+                              <td className="px-4 py-3 font-medium text-slate-800 leading-relaxed min-w-[200px]">{tx.description}</td>
+                              <td className="px-4 py-3 text-center">
+                                <span className={`inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                  tx.type === "CREDIT"
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                                    : "bg-red-50 text-red-700 border border-red-100"
+                                }`}>
+                                  {tx.type === "CREDIT" ? "CR (Kredit)" : "DB (Debet)"}
+                                </span>
+                              </td>
+                              <td className={`px-4 py-3 font-bold text-right whitespace-nowrap ${
+                                tx.type === "CREDIT" ? "text-emerald-600" : "text-rose-600"
+                              }`}>
+                                {tx.type === "CREDIT" ? "+" : "-"} Rp {tx.amount.toLocaleString("id-ID")}
+                              </td>
+                              <td className="px-4 py-3 font-medium text-right text-slate-500 whitespace-nowrap">
+                                {tx.balance ? `Rp ${tx.balance.toLocaleString("id-ID")}` : "-"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-xs flex flex-col items-center justify-center h-full min-h-[450px]">
+                  <CreditCard className="w-12 h-12 text-slate-300 mb-3 animate-pulse" />
+                  <h3 className="text-sm font-bold text-slate-700 tracking-tight">Belum Ada Rekening Koran Aktif</h3>
+                  <p className="text-xs text-slate-500 mt-2 max-w-md text-balance leading-relaxed">
+                    Unggah file PDF rekening koran di panel kiri atau klik "Demo ⚡" untuk melihat demonstrasi instan pemisahan mutasi uang masuk (Kredit) dan uang keluar (Debet) otomatis menggunakan AI.
+                  </p>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+          </div>
+        )}
 
         {/* TAB 3: WORKERS LIST & DEFAULTS MANAGER */}
         {activeTab === "workers" && (
@@ -5822,6 +6301,88 @@ export default function App() {
                       </div>
                     </>
                   )}
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* REKENING KORAN DELETE CONFIRMATION MODAL */}
+        <AnimatePresence>
+          {isDeleteConfirmModalOpen && (
+            <div className="fixed inset-0 bg-slate-950/75 backdrop-blur-md flex items-center justify-center p-4 z-50" id="delete_bank_statement_confirm_backdrop">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-white rounded-3xl max-w-md w-full shadow-2xl border-2 border-red-500 overflow-hidden"
+                id="delete_bank_statement_confirm_modal"
+              >
+                {/* Header Warning */}
+                <div className="bg-red-600 px-6 py-5 text-white flex items-center gap-3">
+                  <div className="bg-red-700/80 p-2 rounded-full border border-red-400">
+                    <AlertTriangle className="w-6 h-6 text-white animate-bounce" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-white font-display text-lg tracking-tight uppercase text-left">⚠️ PERINGATAN KERAS</h3>
+                    <p className="text-red-100 text-[11px] font-medium text-left">Tindakan ini bersifat permanen!</p>
+                  </div>
+                </div>
+
+                <div className="p-6 space-y-4 text-left font-sans">
+                  <p className="text-slate-800 text-xs font-semibold leading-relaxed">
+                    Apakah Anda yakin ingin menghapus data hasil analisis rekening koran ini dari riwayat?
+                  </p>
+
+                  {/* Document metadata block */}
+                  {(() => {
+                    const doc = bankStatements.find(s => s.id === bankStatementToDelete);
+                    if (!doc) return null;
+                    return (
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] space-y-1 font-mono">
+                        <div className="flex justify-between text-slate-500">
+                          <span>📂 Berkas:</span>
+                          <span className="font-bold text-slate-800 text-right truncate max-w-[200px]">{doc.fileName}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500">
+                          <span>🏦 Bank:</span>
+                          <span className="font-bold text-indigo-700 text-right">{doc.summary.bankName}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500">
+                          <span>👤 Pemilik:</span>
+                          <span className="font-bold text-slate-800 text-right">{doc.summary.accountHolder || "-"}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                    <div className="text-[11px] text-red-800 leading-relaxed font-semibold">
+                      Tindakan ini akan menghapus seluruh rekaman analisis, data ringkasan bank, dan riwayat mutasi transaksi ini <strong>secara permanen</strong> dari penyimpanan browser lokal Anda. Data yang dihapus tidak dapat dipulihkan atau dikembalikan dengan cara apa pun.
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDeleteConfirmModalOpen(false);
+                        setBankStatementToDelete(null);
+                      }}
+                      className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold text-xs transition cursor-pointer border border-slate-250 text-center"
+                    >
+                      Batalkan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmDeleteBankStatement}
+                      className="flex-1 bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-bold text-xs transition cursor-pointer flex items-center justify-center gap-2 shadow-md shadow-red-100 text-center"
+                    >
+                      <Trash className="w-4 h-4" />
+                      <span>Ya, Hapus Permanen</span>
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             </div>
