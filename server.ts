@@ -375,6 +375,101 @@ app.post("/api/update-worker-profile", (req, res) => {
   }
 });
 
+// POST /api/worker-report (Worker reports a problem with their link/portal)
+app.post("/api/worker-report", async (req, res) => {
+  try {
+    const { workerId, description } = req.body;
+    if (!workerId) {
+      return res.status(400).json({ error: "ID pekerja wajib diisi." });
+    }
+
+    const state = readState();
+    const workers = state.workers || [];
+    const worker = workers.find((w: any) => w.id === workerId);
+    if (!worker) {
+      return res.status(404).json({ error: "Pekerja tidak ditemukan." });
+    }
+
+    const todayYMD = getJakartaDateStr();
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "Asia/Jakarta" });
+
+    // Ensure logs array exists
+    if (!state.attendanceLogs) {
+      state.attendanceLogs = [];
+    }
+
+    // Add to logs with LAPORAN_KENDALA status
+    state.attendanceLogs.unshift({
+      id: "LOG-REP-" + Date.now() + "-" + Math.random().toString(36).substr(2, 4),
+      workerId: worker.id,
+      workerName: worker.name,
+      date: todayYMD,
+      time: timeStr,
+      latitude: 0,
+      longitude: 0,
+      distance: 0,
+      address: `Laporan kendala: ${description || "Link absensi bermasalah / tidak bisa diakses"}`,
+      status: "LAPORAN_KENDALA"
+    });
+
+    if (state.attendanceLogs.length > 500) {
+      state.attendanceLogs = state.attendanceLogs.slice(0, 500);
+    }
+    writeState(state);
+
+    // Try sending WhatsApp notification
+    const waStatus = getWhatsAppStatus();
+    let sentToAdmin = false;
+    let sentToRoles = 0;
+
+    const messageText = `⚠️ *LAPORAN KENDALA LINK ABSENSI* 👷‍♂️\n\nHalo Admin / Mandor,\nPekerja berikut melaporkan kendala pada link absensi mereka hari ini:\n\n👤 *Nama:* ${worker.name}\n🆔 *ID:* ${worker.id}\n📞 *No. WA:* ${worker.phoneNumber || '-'}\n💼 *Jabatan:* ${worker.role}\n📅 *Waktu:* ${todayYMD} ${timeStr} WIB\n\n💬 *Kendala:* _${description || 'Terdapat kendala ketika membuka link absensi.'}_\n\n_Harap bantu verifikasi atau lakukan pencatatan kehadiran manual di dashboard admin._ 🙏`;
+
+    if (waStatus.status === "connected") {
+      // 1. Send to self (the logged in admin account) if possible
+      if (waStatus.user?.id) {
+        try {
+          await sendWhatsAppMessage(waStatus.user.id, messageText);
+          sentToAdmin = true;
+        } catch (e) {
+          console.error("Failed to send report to self/admin user:", e);
+        }
+      }
+
+      // 2. Send to any other workers who are Admin, Mandor or Manager
+      const adminWorkers = workers.filter((w: any) => 
+        w.isActive && 
+        w.phoneNumber && 
+        (w.role?.toLowerCase().includes("admin") || 
+         w.role?.toLowerCase().includes("mandor") || 
+         w.role?.toLowerCase().includes("manager") || 
+         w.role?.toLowerCase().includes("hr"))
+      );
+
+      for (const admin of adminWorkers) {
+        try {
+          await sendWhatsAppMessage(admin.phoneNumber, messageText);
+          sentToRoles++;
+        } catch (e) {
+          console.error(`Failed to send report to admin/mandor worker (${admin.name}):`, e);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Laporan kendala berhasil terkirim dan dicatat di dashboard Admin.",
+      waSent: sentToAdmin || sentToRoles > 0,
+      recipients: {
+        adminSelf: sentToAdmin,
+        adminRolesCount: sentToRoles
+      }
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Gagal mengirim laporan kendala." });
+  }
+});
+
 // Endpoint to Parse Petty Cash PDF / Image
 app.post("/api/parse-petty-cash", async (req, res) => {
   try {
