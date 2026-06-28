@@ -5845,7 +5845,7 @@ export default function App() {
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}&pin=${attendancePin}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                                  const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}&pin=${attendancePin}\n\nYuk, langsung diklik link-nya ya! Pastikan untuk mengaktifkan dan menyetujui izin lokasi (GPS) di HP Anda, kemudian langsung tekan tombol check-in di dalam aplikasi.\n\nSetelah berhasil, Anda akan menerima pesan pop-up konfirmasi sukses. Selamat bekerja hari ini, dan besok jangan lupa untuk absen kembali ya agar uang makannya selalu lancar! Semangat terus dan jaga keselamatan kerja! 😊✨`;
                                   setSendingBotMsgId(worker.id);
                                   try {
                                     const res = await fetch("/api/wa/send-test", {
@@ -6224,7 +6224,7 @@ export default function App() {
                       
                       const currentWorker = activeWorkers[currentStepIndex];
                       const link = `${window.location.origin}/?id=${currentWorker.id}&pin=${attendancePin}`;
-                      const customMsg = `Halo *${currentWorker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                      const customMsg = `Halo *${currentWorker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\nYuk, langsung diklik link-nya ya! Pastikan untuk mengaktifkan dan menyetujui izin lokasi (GPS) di HP Anda, kemudian langsung tekan tombol check-in di dalam aplikasi.\n\nSetelah berhasil, Anda akan menerima pesan pop-up konfirmasi sukses. Selamat bekerja hari ini, dan besok jangan lupa untuk absen kembali ya agar uang makannya selalu lancar! Semangat terus dan jaga keselamatan kerja! 😊✨`;
                       const encodedMsg = encodeURIComponent(customMsg);
                       
                       let phoneClean = currentWorker.phoneNumber?.replace(/[^0-9]/g, "") || "";
@@ -6520,7 +6520,7 @@ export default function App() {
                                   const activeWorkers = workers.filter(w => w.isActive);
                                   const compiled = activeWorkers.map(w => {
                                     const link = `${window.location.origin}/?id=${w.id}&pin=${attendancePin}`;
-                                    return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                                    return `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\nYuk, langsung diklik link-nya ya! Pastikan untuk mengaktifkan dan menyetujui izin lokasi (GPS) di HP Anda, kemudian langsung tekan tombol check-in di dalam aplikasi.\n\nSetelah berhasil, Anda akan menerima pesan pop-up konfirmasi sukses. Selamat bekerja hari ini, dan besok jangan lupa untuk absen kembali ya agar uang makannya selalu lancar! Semangat terus dan jaga keselamatan kerja! 😊✨`;
                                   }).join("\n\n-------------------------\n\n");
                                   navigator.clipboard.writeText(compiled);
                                   alert("Semua format pesan WhatsApp pekerja berhasil disalin ke clipboard!");
@@ -6553,7 +6553,7 @@ export default function App() {
                         <div className="border border-slate-150 rounded-xl overflow-hidden divide-y divide-slate-100">
                           {workers.filter(w => w.isActive).map((w) => {
                                     const link = `${window.location.origin}/?id=${w.id}&pin=${attendancePin}`;
-                                    const customMsg = `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                                    const customMsg = `Halo *${w.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\nYuk, langsung diklik link-nya ya! Pastikan untuk mengaktifkan dan menyetujui izin lokasi (GPS) di HP Anda, kemudian langsung tekan tombol check-in di dalam aplikasi.\n\nSetelah berhasil, Anda akan menerima pesan pop-up konfirmasi sukses. Selamat bekerja hari ini, dan besok jangan lupa untuk absen kembali ya agar uang makannya selalu lancar! Semangat terus dan jaga keselamatan kerja! 😊✨`;
                             const encodedMsg = encodeURIComponent(customMsg);
                             
                             // Sanitize phone number (remove non-digits and replace leading '0' with '62' if necessary)
