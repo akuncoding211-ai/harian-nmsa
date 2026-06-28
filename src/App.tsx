@@ -533,6 +533,15 @@ export default function App() {
   }, [selfWorker, lastInitializedWorkerId]);
 
   useEffect(() => {
+    if (selfWorker) {
+      const alreadyVerified = localStorage.getItem(`has_verified_profile_${selfWorker.id}`) === "true";
+      if (alreadyVerified) {
+        setHasVerifiedProfile(true);
+      }
+    }
+  }, [selfWorker]);
+
+  useEffect(() => {
     localStorage.setItem("global_allowance", globalAllowance.toString());
   }, [globalAllowance]);
 
@@ -1856,118 +1865,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Foto Profil inside modal */}
-                      <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750 space-y-2.5" id="verification-photo-selector">
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                          <Camera className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Unggah Foto Profil</span>
-                        </label>
-                        
-                        <div className="grid grid-cols-3 gap-2">
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById("modal-camera-input")?.click()}
-                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-indigo-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
-                          >
-                            <Camera className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition duration-150 mb-1" />
-                            <span className="text-[9px] font-bold">Kamera HP</span>
-                            <span className="text-[7px] text-slate-500 font-normal">Ambil foto</span>
-                          </button>
-                          
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById("modal-gallery-input")?.click()}
-                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-emerald-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
-                          >
-                            <Image className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition duration-150 mb-1" />
-                            <span className="text-[9px] font-bold">Galeri Foto</span>
-                            <span className="text-[7px] text-slate-500 font-normal">Pilih gambar</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById("modal-device-input")?.click()}
-                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-amber-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
-                          >
-                            <Folder className="w-4 h-4 text-amber-400 group-hover:scale-110 transition duration-150 mb-1" />
-                            <span className="text-[9px] font-bold">Pilih File</span>
-                            <span className="text-[7px] text-slate-500 font-normal">Penyimpanan</span>
-                          </button>
-                        </div>
-
-                        {/* Hidden native input elements */}
-                        <input
-                          type="file"
-                          id="modal-camera-input"
-                          accept="image/*"
-                          capture="user"
-                          className="hidden"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              try {
-                                const base64 = await resizeAndCompressImage(e.target.files[0]);
-                                setEditPhotoUrl(base64);
-                              } catch (err) {
-                                console.error("Gagal membaca foto", err);
-                              }
-                            }
-                          }}
-                        />
-                        <input
-                          type="file"
-                          id="modal-gallery-input"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              try {
-                                const base64 = await resizeAndCompressImage(e.target.files[0]);
-                                setEditPhotoUrl(base64);
-                              } catch (err) {
-                                console.error("Gagal membaca foto", err);
-                              }
-                            }
-                          }}
-                        />
-                        <input
-                          type="file"
-                          id="modal-device-input"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              try {
-                                const base64 = await resizeAndCompressImage(e.target.files[0]);
-                                setEditPhotoUrl(base64);
-                              } catch (err) {
-                                console.error("Gagal membaca foto", err);
-                              }
-                            }
-                          }}
-                        />
-
-                        {editPhotoUrl && (
-                          <div className="flex items-center gap-3 bg-indigo-500/10 p-2 rounded-lg border border-indigo-500/20 mt-1">
-                            <img
-                              src={editPhotoUrl}
-                              alt="Preview"
-                              className="w-10 h-10 object-cover rounded-full border border-indigo-500/30"
-                              referrerPolicy="no-referrer"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[9px] text-slate-300 font-medium">Pratinjau Foto Profil</p>
-                              <span className="text-[8px] text-indigo-400 font-mono">Siap disimpan</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setEditPhotoUrl("")}
-                              className="text-[9px] text-rose-400 hover:text-rose-300 font-bold px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 rounded-md transition cursor-pointer"
-                            >
-                              Hapus
-                            </button>
-                          </div>
-                        )}
-                      </div>
                     </div>
 
                     {/* Checkbox Agreement */}
@@ -2027,6 +1924,7 @@ export default function App() {
                              setSelfWorker(result.worker);
                              setWorkers(workers.map(w => w.id === selfWorker.id ? result.worker : w));
                              setHasVerifiedProfile(true);
+                             localStorage.setItem(`has_verified_profile_${selfWorker.id}`, "true");
                              alert("Data Anda berhasil diverifikasi!");
                           } else {
                             setProfileSaveStatus("error");
@@ -2144,121 +2042,6 @@ export default function App() {
                   /* EDITING FORM VIEW */
                   <div className="space-y-4">
                     <div className="space-y-3 text-xs">
-                      {/* Profil Photo Selector with explicit options requested */}
-                      <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750/70 space-y-2.5">
-                        <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                          <Camera className="w-3.5 h-3.5 text-indigo-400" />
-                          <span>Pilih Foto Profil Anda</span>
-                        </label>
-                        
-                        <div className="grid grid-cols-3 gap-2">
-                          {/* Kamera Langsung */}
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById("camera-photo-input")?.click()}
-                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-indigo-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
-                          >
-                            <Camera className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition duration-150 mb-1" />
-                            <span className="text-[9px] font-bold">Kamera HP</span>
-                            <span className="text-[7px] text-slate-500">Ambil foto</span>
-                          </button>
-                          
-                          {/* Galeri Media */}
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById("gallery-photo-input")?.click()}
-                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-emerald-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
-                          >
-                            <Image className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition duration-150 mb-1" />
-                            <span className="text-[9px] font-bold">Galeri Foto</span>
-                            <span className="text-[7px] text-slate-500">Dari Galeri</span>
-                          </button>
-
-                          {/* Folder / Penyimpanan HP */}
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById("device-photo-input")?.click()}
-                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-amber-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
-                          >
-                            <Folder className="w-4 h-4 text-amber-400 group-hover:scale-110 transition duration-150 mb-1" />
-                            <span className="text-[9px] font-bold">Pilih File</span>
-                            <span className="text-[7px] text-slate-500">Penyimpanan</span>
-                          </button>
-                        </div>
-
-                        {/* Hidden native input elements for the 3 selection modes */}
-                         <input
-                          type="file"
-                          id="camera-photo-input"
-                          accept="image/*"
-                          capture="user"
-                          className="hidden"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              try {
-                                const base64 = await resizeAndCompressImage(e.target.files[0]);
-                                setEditPhotoUrl(base64);
-                              } catch (err) {
-                                console.error("Gagal membaca foto", err);
-                              }
-                            }
-                          }}
-                        />
-                        <input
-                          type="file"
-                          id="gallery-photo-input"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              try {
-                                const base64 = await resizeAndCompressImage(e.target.files[0]);
-                                setEditPhotoUrl(base64);
-                              } catch (err) {
-                                console.error("Gagal membaca foto", err);
-                              }
-                            }
-                          }}
-                        />
-                        <input
-                          type="file"
-                          id="device-photo-input"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={async (e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              try {
-                                const base64 = await resizeAndCompressImage(e.target.files[0]);
-                                setEditPhotoUrl(base64);
-                              } catch (err) {
-                                console.error("Gagal membaca foto", err);
-                              }
-                            }
-                          }}
-                        />
-
-                        {editPhotoUrl && (
-                          <div className="flex items-center gap-3 bg-indigo-500/10 p-2 rounded-lg border border-indigo-500/20 mt-1">
-                            <img
-                              src={editPhotoUrl}
-                              alt="Preview"
-                              className="w-10 h-10 object-cover rounded-full border border-indigo-500/30"
-                              referrerPolicy="no-referrer"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[9px] text-slate-300 font-medium">Pratinjau Foto Baru</p>
-                              <span className="text-[8px] text-indigo-400 font-mono">Siap disimpan</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setEditPhotoUrl("")}
-                              className="text-[9px] text-rose-400 hover:text-rose-300 font-bold px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 rounded-md transition"
-                            >
-                              Hapus
-                            </button>
-                          </div>
-                        )}
-                      </div>
 
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -2362,6 +2145,8 @@ export default function App() {
                               setSelfWorker(result.worker);
                               // Also update the global workers state to sync immediately
                               setWorkers(workers.map(w => w.id === selfWorker.id ? result.worker : w));
+                              setHasVerifiedProfile(true);
+                              localStorage.setItem(`has_verified_profile_${selfWorker.id}`, "true");
                               // Automatically switch back to read-only view on successful save!
                               setTimeout(() => {
                                 setIsEditingProfile(false);
