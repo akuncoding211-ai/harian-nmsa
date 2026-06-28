@@ -3490,8 +3490,46 @@ export default function App() {
 
                         {/* Display Errors if Any */}
                         {waBotError && (
-                          <div className="absolute bottom-2 left-2 right-2 bg-rose-50 border border-rose-150 p-2 rounded-lg text-[10px] text-rose-700 text-center font-semibold">
-                            ⚠️ {waBotError}
+                          <div className="absolute bottom-2 left-2 right-2 bg-rose-50 border border-rose-150 p-2.5 rounded-xl text-[10px] text-rose-700 font-semibold flex flex-col items-center gap-2 shadow-sm z-10">
+                            <div className="flex items-start gap-1 text-left leading-normal">
+                              <span className="shrink-0 mt-0.5">⚠️</span>
+                              <span>
+                                {waBotError.includes("Logged out of WhatsApp") 
+                                  ? "Koneksi terputus/dibatalkan oleh WhatsApp HP Anda. Silakan bersihkan sesi server lalu tautkan ulang." 
+                                  : waBotError}
+                              </span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    const res = await fetch("/api/wa/disconnect", { method: "POST" });
+                                    const data = await res.json();
+                                    if (data.success) {
+                                      setWaBotStatus("disconnected");
+                                      setWaBotQr(null);
+                                      setWaBotUser(null);
+                                      setWaBotError(null);
+                                      alert("Sesi berhasil dibersihkan! Anda sekarang dapat mencoba menghubungkan kembali.");
+                                    }
+                                  } catch (e) {
+                                    console.error("Gagal membersihkan sesi:", e);
+                                    alert("Gagal membersihkan sesi server.");
+                                  }
+                                }}
+                                className="bg-rose-600 hover:bg-rose-700 text-white font-bold px-2.5 py-1 rounded-lg transition text-[9px] cursor-pointer shadow-xs"
+                              >
+                                Bersihkan Sesi Server
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setWaBotError(null)}
+                                className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2.5 py-1 rounded-lg transition text-[9px] cursor-pointer"
+                              >
+                                Tutup Peringatan
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
