@@ -13,6 +13,7 @@ export interface Worker {
   phoneNumber?: string;
   nik?: string;
   photoUrl?: string;
+  updatedAt?: number;
 }
 
 export interface DailyAttendance {

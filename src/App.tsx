@@ -1484,6 +1484,7 @@ export default function App() {
       bankAccount: newWorkerBankAccount || undefined,
       phoneNumber: newWorkerPhoneNumber || undefined,
       nik: newWorkerNik || undefined,
+      updatedAt: Date.now(),
     };
 
     setWorkers([...workers, newWorker]);
@@ -1520,6 +1521,7 @@ export default function App() {
               bankAccount: editWorkerBankAccount || undefined,
               phoneNumber: editWorkerPhoneNumber || undefined,
               nik: editWorkerNik || undefined,
+              updatedAt: Date.now(),
             }
           : w
       )
@@ -1530,7 +1532,7 @@ export default function App() {
 
   const handleToggleWorkerActive = (workerId: string) => {
     setWorkers(
-      workers.map((w) => (w.id === workerId ? { ...w, isActive: !w.isActive } : w))
+      workers.map((w) => (w.id === workerId ? { ...w, isActive: !w.isActive, updatedAt: Date.now() } : w))
     );
   };
 

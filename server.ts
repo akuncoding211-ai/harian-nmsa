@@ -153,8 +153,26 @@ app.post("/api/shared-state", (req, res) => {
     } = req.body;
     const currentState = readState();
 
+    // Merge workers list to avoid overwriting worker-updated profiles with stale admin state
+    let mergedWorkers = currentState.workers || [];
+    if (workers !== undefined) {
+      const currentWorkersMap = new Map(mergedWorkers.map((w: any) => [w.id, w]));
+      mergedWorkers = workers.map((incomingWorker: any) => {
+        const serverWorker = currentWorkersMap.get(incomingWorker.id) as any;
+        if (serverWorker) {
+          const serverTime = serverWorker.updatedAt || 0;
+          const incomingTime = incomingWorker.updatedAt || 0;
+          if (serverTime > incomingTime) {
+            // Keep the server's version of the worker (which was updated by the worker more recently)
+            return serverWorker;
+          }
+        }
+        return incomingWorker;
+      });
+    }
+
     const updatedState = {
-      workers: workers !== undefined ? workers : currentState.workers,
+      workers: mergedWorkers,
       attendanceRecords: attendanceRecords !== undefined ? attendanceRecords : currentState.attendanceRecords,
       weeklyReports: weeklyReports !== undefined ? weeklyReports : currentState.weeklyReports,
       pettyCashReports: pettyCashReports !== undefined ? pettyCashReports : currentState.pettyCashReports,
@@ -359,6 +377,7 @@ app.post("/api/update-worker-profile", (req, res) => {
     if (photoUrl !== undefined) worker.photoUrl = photoUrl;
     if (name !== undefined && name.trim() !== "") worker.name = name;
     if (role !== undefined && role.trim() !== "") worker.role = role;
+    worker.updatedAt = Date.now();
 
     writeState({
       ...state,
