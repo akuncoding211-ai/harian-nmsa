@@ -198,6 +198,7 @@ export default function App() {
   const [editPhoneNumber, setEditPhoneNumber] = useState<string>("");
   const [editNik, setEditNik] = useState<string>("");
   const [editPhotoUrl, setEditPhotoUrl] = useState<string>("");
+  const [lastInitializedWorkerId, setLastInitializedWorkerId] = useState<string>("");
   const [editName, setEditName] = useState<string>("");
   const [editRole, setEditRole] = useState<string>("");
   const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
@@ -519,7 +520,7 @@ export default function App() {
   }, [pettyCashHolders, selectedUploadHolder]);
 
   useEffect(() => {
-    if (selfWorker) {
+    if (selfWorker && lastInitializedWorkerId !== selfWorker.id) {
       setEditBankName(selfWorker.bankName || "");
       setEditBankAccount(selfWorker.bankAccount || "");
       setEditPhoneNumber(selfWorker.phoneNumber || "");
@@ -527,8 +528,9 @@ export default function App() {
       setEditPhotoUrl(selfWorker.photoUrl || "");
       setEditName(selfWorker.name || "");
       setEditRole(selfWorker.role || "");
+      setLastInitializedWorkerId(selfWorker.id);
     }
-  }, [selfWorker]);
+  }, [selfWorker, lastInitializedWorkerId]);
 
   useEffect(() => {
     localStorage.setItem("global_allowance", globalAllowance.toString());
@@ -1276,44 +1278,48 @@ export default function App() {
       reader.onerror = (error) => reject(error);
     });
 
-  const resizeAndCompressImage = (file: File, maxWidth = 300, maxHeight = 300): Promise<string> => {
+  const resizeAndCompressImage = (file: File, maxWidth = 240, maxHeight = 240): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
       reader.onload = (event) => {
-        const img = window.document.createElement("img");
-        img.src = event.target?.result as string;
+        const img = new Image();
         img.onload = () => {
-          const canvas = window.document.createElement("canvas");
-          let width = img.width;
-          let height = img.height;
+          try {
+            const canvas = window.document.createElement("canvas");
+            let width = img.width;
+            let height = img.height;
 
-          if (width > height) {
-            if (width > maxWidth) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
+            if (width > height) {
+              if (width > maxWidth) {
+                height = Math.round((height * maxWidth) / width);
+                width = maxWidth;
+              }
+            } else {
+              if (height > maxHeight) {
+                width = Math.round((width * maxHeight) / height);
+                height = maxHeight;
+              }
             }
-          } else {
-            if (height > maxHeight) {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
-            }
-          }
 
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            resolve(event.target?.result as string);
-            return;
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext("2d");
+            if (!ctx) {
+              resolve(event.target?.result as string);
+              return;
+            }
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressedBase64 = canvas.toDataURL("image/jpeg", 0.65);
+            resolve(compressedBase64);
+          } catch (err) {
+            reject(err);
           }
-          ctx.drawImage(img, 0, 0, width, height);
-          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
-          resolve(compressedBase64);
         };
         img.onerror = (err) => reject(err);
+        img.src = event.target?.result as string;
       };
       reader.onerror = (err) => reject(err);
+      reader.readAsDataURL(file);
     });
   };
 
@@ -1924,6 +1930,7 @@ export default function App() {
                         <input
                           type="file"
                           id="modal-device-input"
+                          accept="image/*"
                           className="hidden"
                           onChange={async (e) => {
                             if (e.target.files && e.target.files[0]) {
@@ -2014,6 +2021,7 @@ export default function App() {
                           const result = await response.json();
                           if (response.ok) {
                              setProfileSaveStatus("success");
+                             setLastInitializedWorkerId("");
                              setSelfWorker(result.worker);
                              setWorkers(workers.map(w => w.id === selfWorker.id ? result.worker : w));
                              setHasVerifiedProfile(true);
@@ -2072,6 +2080,9 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      if (isEditingProfile) {
+                        setLastInitializedWorkerId("");
+                      }
                       setIsEditingProfile(!isEditingProfile);
                       setProfileSaveMsg("");
                       setProfileSaveStatus("idle");
@@ -2210,6 +2221,7 @@ export default function App() {
                         <input
                           type="file"
                           id="device-photo-input"
+                          accept="image/*"
                           className="hidden"
                           onChange={async (e) => {
                             if (e.target.files && e.target.files[0]) {
@@ -2341,7 +2353,9 @@ export default function App() {
                             });
                             const result = await response.json();
                             if (response.ok) {
-                              setProfileSaveStatus("success");
+                             setProfileSaveStatus("success");
+                             setLastInitializedWorkerId("");
+                              setLastInitializedWorkerId("");
                               setProfileSaveMsg(result.message);
                               setSelfWorker(result.worker);
                               // Also update the global workers state to sync immediately
