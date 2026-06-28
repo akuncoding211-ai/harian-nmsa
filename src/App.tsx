@@ -43,7 +43,8 @@ import {
   Clock,
   Zap,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Cpu
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -61,7 +62,7 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType } from "./types";
+import { Worker, AttendanceRecord, WeeklyReport, PettyCashReport, PettyCashTransaction, TransactionType, BankStatementReport } from "./types";
 import { INITIAL_WORKERS, INDONESIAN_DAYS, COMMON_CATEGORIES } from "./constants";
 import { triggerExcelDownload } from "./lib/excelGenerator";
 import { triggerAttendanceExcelDownload, printWeeklyReportPDF } from "./lib/attendanceSheetGenerator";
@@ -202,6 +203,9 @@ export default function App() {
   const [profileSaveStatus, setProfileSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [profileSaveMsg, setProfileSaveMsg] = useState<string>("");
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
+  const [hasVerifiedProfile, setHasVerifiedProfile] = useState<boolean>(false);
+  const [sendingBotMsgId, setSendingBotMsgId] = useState<string | null>(null);
+  const [isAgreedToDataVerification, setIsAgreedToDataVerification] = useState<boolean>(false);
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [activeTab, setActiveTab] = useState<"dashboard" | "absen" | "pettycash" | "workers">("dashboard");
@@ -1272,6 +1276,47 @@ export default function App() {
       reader.onerror = (error) => reject(error);
     });
 
+  const resizeAndCompressImage = (file: File, maxWidth = 300, maxHeight = 300): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = (event) => {
+        const img = window.document.createElement("img");
+        img.src = event.target?.result as string;
+        img.onload = () => {
+          const canvas = window.document.createElement("canvas");
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(event.target?.result as string);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+          resolve(compressedBase64);
+        };
+        img.onerror = (err) => reject(err);
+      };
+      reader.onerror = (err) => reject(err);
+    });
+  };
+
   // --- Workspace Transaction Interactive Editors ---
   const handleAddWorkspaceTx = () => {
     if (!activeWorkspaceReport || !newTxDesc || newTxAmount <= 0) {
@@ -1703,6 +1748,297 @@ export default function App() {
         </header>
 
         <main className="max-w-md w-full mx-auto my-auto py-8 z-10">
+          <AnimatePresence>
+            {!hasVerifiedProfile && selfWorker && (
+              <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto" id="worker-profile-verification-overlay">
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-slate-800 border border-slate-700/80 rounded-3xl max-w-md w-full shadow-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col font-sans"
+                  id="worker-profile-verification-card"
+                >
+                  {/* Modal Header */}
+                  <div className="bg-indigo-600 px-6 py-4 text-white flex items-center gap-3">
+                    <div className="bg-indigo-700 p-2 rounded-full border border-indigo-400">
+                      <FileCheck className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-extrabold text-white font-display text-sm tracking-tight uppercase text-left">VERIFIKASI DATA MANDIRI</h3>
+                      <p className="text-indigo-100 text-[10px] font-medium text-left">Lengkapi & pastikan kebenaran data Anda</p>
+                    </div>
+                  </div>
+
+                  {/* Scrollable Form Content */}
+                  <div className="p-6 overflow-y-auto space-y-4 max-h-[65vh] text-left">
+                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[11px] text-amber-200 leading-relaxed font-medium">
+                      ⚠️ Sebelum melakukan absensi harian, harap isi seluruh data diri Anda yang masih kosong dan pastikan data yang sudah ada sudah 100% benar.
+                    </div>
+
+                    <div className="space-y-3 text-xs">
+                      {/* Name */}
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nama Lengkap Anda</label>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={(e) => setEditName(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-3 py-2 text-white text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                          placeholder="Masukkan nama lengkap Anda"
+                        />
+                      </div>
+
+                      {/* NIK */}
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">NIK (Nomor Induk Kependudukan)</label>
+                        <input
+                          type="text"
+                          value={editNik}
+                          onChange={(e) => setEditNik(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-3 py-2 text-white text-xs font-mono focus:ring-1 focus:ring-indigo-500 outline-none"
+                          placeholder="Contoh: 3201XXXXXXXXXXXXXXXX"
+                        />
+                      </div>
+
+                      {/* Jabatan */}
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Jabatan / Posisi</label>
+                        <input
+                          type="text"
+                          value={editRole}
+                          onChange={(e) => setEditRole(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-3 py-2 text-white text-xs focus:ring-1 focus:ring-indigo-500 outline-none"
+                          placeholder="Misal: Operator, Mandor, Helper, Driver"
+                        />
+                      </div>
+
+                      {/* Phone Number */}
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">No. WhatsApp Aktif</label>
+                        <input
+                          type="text"
+                          value={editPhoneNumber}
+                          onChange={(e) => setEditPhoneNumber(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-750 rounded-lg px-3 py-2 text-white text-xs font-mono focus:ring-1 focus:ring-indigo-500 outline-none"
+                          placeholder="Contoh: 081234567890"
+                        />
+                      </div>
+
+                      {/* Bank Details */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nama Bank Transfer</label>
+                          <input
+                            type="text"
+                            value={editBankName}
+                            onChange={(e) => setEditBankName(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-3 py-2 text-white text-xs focus:ring-1 focus:ring-indigo-500 outline-none uppercase"
+                            placeholder="BCA, BRI, Mandiri, dll."
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 font-bold uppercase mb-1">Nomor Rekening Bank</label>
+                          <input
+                            type="text"
+                            value={editBankAccount}
+                            onChange={(e) => setEditBankAccount(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-750 rounded-lg px-3 py-2 text-white text-xs font-mono focus:ring-1 focus:ring-indigo-500 outline-none"
+                            placeholder="Masukkan No Rekening"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Foto Profil inside modal */}
+                      <div className="bg-slate-900/40 p-3 rounded-xl border border-slate-750 space-y-2.5" id="verification-photo-selector">
+                        <label className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                          <Camera className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>Unggah Foto Profil</span>
+                        </label>
+                        
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById("modal-camera-input")?.click()}
+                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-indigo-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
+                          >
+                            <Camera className="w-4 h-4 text-indigo-400 group-hover:scale-110 transition duration-150 mb-1" />
+                            <span className="text-[9px] font-bold">Kamera HP</span>
+                            <span className="text-[7px] text-slate-500 font-normal">Ambil foto</span>
+                          </button>
+                          
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById("modal-gallery-input")?.click()}
+                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-emerald-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
+                          >
+                            <Image className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition duration-150 mb-1" />
+                            <span className="text-[9px] font-bold">Galeri Foto</span>
+                            <span className="text-[7px] text-slate-500 font-normal">Pilih gambar</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById("modal-device-input")?.click()}
+                            className="flex flex-col items-center justify-center p-2 rounded-lg border border-dashed border-slate-700 hover:border-amber-500 bg-slate-800/40 hover:bg-slate-800/80 text-slate-300 transition duration-150 cursor-pointer text-center group"
+                          >
+                            <Folder className="w-4 h-4 text-amber-400 group-hover:scale-110 transition duration-150 mb-1" />
+                            <span className="text-[9px] font-bold">Pilih File</span>
+                            <span className="text-[7px] text-slate-500 font-normal">Penyimpanan</span>
+                          </button>
+                        </div>
+
+                        {/* Hidden native input elements */}
+                        <input
+                          type="file"
+                          id="modal-camera-input"
+                          accept="image/*"
+                          capture="user"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              try {
+                                const base64 = await resizeAndCompressImage(e.target.files[0]);
+                                setEditPhotoUrl(base64);
+                              } catch (err) {
+                                console.error("Gagal membaca foto", err);
+                              }
+                            }
+                          }}
+                        />
+                        <input
+                          type="file"
+                          id="modal-gallery-input"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              try {
+                                const base64 = await resizeAndCompressImage(e.target.files[0]);
+                                setEditPhotoUrl(base64);
+                              } catch (err) {
+                                console.error("Gagal membaca foto", err);
+                              }
+                            }
+                          }}
+                        />
+                        <input
+                          type="file"
+                          id="modal-device-input"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              try {
+                                const base64 = await resizeAndCompressImage(e.target.files[0]);
+                                setEditPhotoUrl(base64);
+                              } catch (err) {
+                                console.error("Gagal membaca foto", err);
+                              }
+                            }
+                          }}
+                        />
+
+                        {editPhotoUrl && (
+                          <div className="flex items-center gap-3 bg-indigo-500/10 p-2 rounded-lg border border-indigo-500/20 mt-1">
+                            <img
+                              src={editPhotoUrl}
+                              alt="Preview"
+                              className="w-10 h-10 object-cover rounded-full border border-indigo-500/30"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[9px] text-slate-300 font-medium">Pratinjau Foto Profil</p>
+                              <span className="text-[8px] text-indigo-400 font-mono">Siap disimpan</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditPhotoUrl("")}
+                              className="text-[9px] text-rose-400 hover:text-rose-300 font-bold px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 rounded-md transition cursor-pointer"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Checkbox Agreement */}
+                    <div className="flex items-start gap-2.5 bg-indigo-950/40 border border-indigo-900/60 p-3 rounded-xl">
+                      <button
+                        type="button"
+                        onClick={() => setIsAgreedToDataVerification(!isAgreedToDataVerification)}
+                        className="shrink-0 text-indigo-400 mt-0.5 cursor-pointer focus:outline-none"
+                      >
+                        {isAgreedToDataVerification ? (
+                          <CheckSquare className="w-4 h-4 text-emerald-400" />
+                        ) : (
+                          <div className="w-4 h-4 border-2 border-slate-500 rounded bg-slate-900" />
+                        )}
+                      </button>
+                      <label className="text-[10px] text-slate-300 leading-normal font-semibold cursor-pointer select-none" onClick={() => setIsAgreedToDataVerification(!isAgreedToDataVerification)}>
+                        Saya menyatakan bahwa seluruh data di atas (termasuk NIK, Jabatan, dan No Rekening) sudah benar, akurat, dan sesuai dengan identitas asli saya.
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* Modal Footer Action Button */}
+                  <div className="p-6 bg-slate-850 border-t border-slate-750/70">
+                    <button
+                      type="button"
+                      disabled={!isAgreedToDataVerification || profileSaveStatus === "saving"}
+                      onClick={async () => {
+                        if (!editName.trim()) {
+                          alert("Nama lengkap wajib diisi.");
+                          return;
+                        }
+                        if (!editNik.trim() || editNik.length < 10) {
+                          alert("NIK KTP wajib diisi dengan benar.");
+                          return;
+                        }
+                        
+                        try {
+                          setProfileSaveStatus("saving");
+                          const response = await fetch("/api/update-worker-profile", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              workerId: selfWorker.id,
+                              bankName: editBankName,
+                              bankAccount: editBankAccount,
+                              phoneNumber: editPhoneNumber,
+                              nik: editNik,
+                              photoUrl: editPhotoUrl,
+                              name: editName,
+                              role: editRole,
+                            }),
+                          });
+                          const result = await response.json();
+                          if (response.ok) {
+                             setProfileSaveStatus("success");
+                             setSelfWorker(result.worker);
+                             setWorkers(workers.map(w => w.id === selfWorker.id ? result.worker : w));
+                             setHasVerifiedProfile(true);
+                             alert("Data Anda berhasil diverifikasi!");
+                          } else {
+                            setProfileSaveStatus("error");
+                            alert(result.error || "Gagal memverifikasi data.");
+                          }
+                        } catch (err: any) {
+                          setProfileSaveStatus("error");
+                          alert(err.message || "Kesalahan jaringan.");
+                        } finally {
+                          setProfileSaveStatus("idle");
+                        }
+                      }}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-700 disabled:text-slate-400 text-white font-bold py-3.5 rounded-xl transition flex items-center justify-center gap-1.5 text-xs shadow-md shadow-indigo-600/15 cursor-pointer font-display uppercase tracking-wider"
+                    >
+                      {profileSaveStatus === "saving" ? "Menyimpan..." : "Konfirmasi & Setujui Data"}
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
           {!selfWorker ? (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -1838,7 +2174,7 @@ export default function App() {
                         </div>
 
                         {/* Hidden native input elements for the 3 selection modes */}
-                        <input
+                         <input
                           type="file"
                           id="camera-photo-input"
                           accept="image/*"
@@ -1847,7 +2183,7 @@ export default function App() {
                           onChange={async (e) => {
                             if (e.target.files && e.target.files[0]) {
                               try {
-                                const base64 = await toBase64(e.target.files[0]);
+                                const base64 = await resizeAndCompressImage(e.target.files[0]);
                                 setEditPhotoUrl(base64);
                               } catch (err) {
                                 console.error("Gagal membaca foto", err);
@@ -1863,7 +2199,7 @@ export default function App() {
                           onChange={async (e) => {
                             if (e.target.files && e.target.files[0]) {
                               try {
-                                const base64 = await toBase64(e.target.files[0]);
+                                const base64 = await resizeAndCompressImage(e.target.files[0]);
                                 setEditPhotoUrl(base64);
                               } catch (err) {
                                 console.error("Gagal membaca foto", err);
@@ -1878,7 +2214,7 @@ export default function App() {
                           onChange={async (e) => {
                             if (e.target.files && e.target.files[0]) {
                               try {
-                                const base64 = await toBase64(e.target.files[0]);
+                                const base64 = await resizeAndCompressImage(e.target.files[0]);
                                 setEditPhotoUrl(base64);
                               } catch (err) {
                                 console.error("Gagal membaca foto", err);
@@ -5436,38 +5772,6 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* WA METHOD SWITCHER */}
-                  <div className="flex items-center gap-1 bg-slate-100 border border-slate-200 rounded-xl p-0.5" title="Metode membuka link WhatsApp">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setWaMethod("desktop");
-                        localStorage.setItem("wa_method", "desktop");
-                      }}
-                      className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
-                        waMethod === "desktop"
-                          ? "bg-white text-slate-800 shadow-xs border border-slate-200"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      Aplikasi PC
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setWaMethod("web");
-                        localStorage.setItem("wa_method", "web");
-                      }}
-                      className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
-                        waMethod === "web"
-                          ? "bg-white text-slate-800 shadow-xs border border-slate-200"
-                          : "text-slate-500 hover:text-slate-700"
-                      }`}
-                    >
-                      WA Web
-                    </button>
-                  </div>
-
                   {/* MASS WA BROADCAST BUTTON */}
                   <button
                     onClick={() => setShowBulkWA(true)}
@@ -5521,71 +5825,48 @@ export default function App() {
                         <td className="py-3.5 px-4 text-slate-700 font-medium">{worker.role}</td>
                         <td className="py-3.5 px-4">
                           <div className="text-slate-700 font-medium">{worker.phoneNumber || "-"}</div>
-                                                  {/* Self Attendance Link Generators */}
+                          
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                            <button
-                              onClick={() => {
-                                const link = `${window.location.origin}/?id=${worker.id}&pin=${attendancePin}`;
-                                navigator.clipboard.writeText(link);
-                                setCopiedWorkerLinkId(worker.id);
-                                setTimeout(() => setCopiedWorkerLinkId(null), 2000);
-                              }}
-                              className="text-[9px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100 transition cursor-pointer flex items-center gap-1 font-semibold"
-                              title="Salin Link Absensi"
-                            >
-                              {copiedWorkerLinkId === worker.id ? (
-                                <Check className="w-2.5 h-2.5 text-emerald-600" />
-                              ) : (
-                                <Globe className="w-2.5 h-2.5 text-indigo-500" />
-                              )}
-                              <span>{copiedWorkerLinkId === worker.id ? "Link Tersalin!" : "Salin Link"}</span>
-                            </button>
-
-                            {/* COPY FULL WA MESSAGE */}
-                            <button
-                              onClick={() => {
-                                const link = `${window.location.origin}/?id=${worker.id}&pin=${attendancePin}`;
-                                const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${link}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
-                                navigator.clipboard.writeText(customMsg);
-                                setCopiedWorkerMsgId(worker.id);
-                                setTimeout(() => setCopiedWorkerMsgId(null), 2000);
-                              }}
-                              className="text-[9px] bg-slate-50 hover:bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded border border-slate-200 transition cursor-pointer flex items-center gap-1 font-semibold"
-                              title="Salin Seluruh Format Pesan WA"
-                            >
-                              {copiedWorkerMsgId === worker.id ? (
-                                <Check className="w-2.5 h-2.5 text-emerald-600" />
-                              ) : (
-                                <Copy className="w-2.5 h-2.5 text-slate-500" />
-                              )}
-                              <span>{copiedWorkerMsgId === worker.id ? "Pesan Tersalin!" : "Salin Pesan WA"}</span>
-                            </button>
-
-                            {worker.phoneNumber && (() => {
-                              // Sanitize phone number (remove non-digits and replace leading '0' with '62' if necessary)
-                              let phoneClean = worker.phoneNumber?.replace(/[^0-9]/g, "") || "";
-                              if (phoneClean.startsWith("0")) {
-                                phoneClean = "62" + phoneClean.slice(1);
-                              }
-                              const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}&pin=${attendancePin}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
-                              const encodedMsg = encodeURIComponent(customMsg);
-                              const waUrl = waMethod === "desktop" 
-                                ? `whatsapp://send?phone=${phoneClean}&text=${encodedMsg}`
-                                : `https://api.whatsapp.com/send?phone=${phoneClean}&text=${encodedMsg}`;
-
-                              return (
-                                <a
-                                  href={waUrl}
-                                  target={waMethod === "desktop" ? "_self" : "_blank"}
-                                  rel="noreferrer"
-                                  className="text-[9px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded border border-emerald-200 transition flex items-center gap-1 font-bold"
-                                  title={waMethod === "desktop" ? "Kirim WA via Aplikasi Desktop" : "Kirim WA via Browser Tab"}
-                                >
-                                  <MessageSquare className="w-2.5 h-2.5 text-emerald-600" />
-                                  <span>{waMethod === "desktop" ? "Kirim WA (App)" : "Kirim WA (Web)"}</span>
-                                </a>
-                              );
-                            })()}
+                            {worker.phoneNumber && (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const customMsg = `Halo *${worker.name}*, silakan klik link berikut untuk melakukan absen mandiri uang makan *PT. Nusantara Mineral Sukses Abadi* hari ini:\n${window.location.origin}/?id=${worker.id}&pin=${attendancePin}\n\n🔑 *PIN Presensi Harian:* ${attendancePin}\n_Silakan masukkan PIN di atas pada halaman absensi untuk melakukan check-in._`;
+                                  setSendingBotMsgId(worker.id);
+                                  try {
+                                    const res = await fetch("/api/wa/send-test", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        phone: worker.phoneNumber,
+                                        message: customMsg,
+                                      }),
+                                    });
+                                    const data = await res.json();
+                                    if (data.success) {
+                                      alert(`Pesan absensi berhasil dikirim secara otomatis oleh Bot ke ${worker.name}!`);
+                                    } else {
+                                      alert(`Gagal mengirim via Bot WA: ${data.error || "Pastikan Bot WhatsApp sudah terhubung di tab Ringkasan & Analitik."}`);
+                                    }
+                                  } catch (err) {
+                                    console.error("Gagal mengirim pesan via Bot:", err);
+                                    alert("Terjadi kesalahan jaringan saat mencoba mengirim pesan.");
+                                  } finally {
+                                    setSendingBotMsgId(null);
+                                  }
+                                }}
+                                disabled={sendingBotMsgId === worker.id}
+                                className="text-[9px] bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-700 text-white px-1.5 py-0.5 rounded transition flex items-center gap-1 font-bold cursor-pointer"
+                                title="Kirim pesan absensi langsung menggunakan Bot WhatsApp Server"
+                              >
+                                {sendingBotMsgId === worker.id ? (
+                                  <div className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <Cpu className="w-2.5 h-2.5" />
+                                )}
+                                <span>{sendingBotMsgId === worker.id ? "Mengirim..." : "Kirim via Bot WA"}</span>
+                              </button>
+                            )}
                           </div>
 
                           {worker.bankAccount ? (
